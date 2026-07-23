@@ -8,7 +8,9 @@ export async function middleware(req: NextRequest) {
     pathname === "/api/login" ||
     pathname === "/manifest.webmanifest" ||
     pathname === "/sw.js" ||
-    pathname.startsWith("/icons/")
+    pathname.startsWith("/icons/") ||
+    // крон-роуты проверяют CRON_SECRET сами
+    pathname.startsWith("/api/cron/")
   ) {
     return NextResponse.next();
   }

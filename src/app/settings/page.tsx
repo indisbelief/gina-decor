@@ -14,13 +14,20 @@ function readUserCookie(): string {
   }
 }
 
+type BackupStatus = {
+  count: number;
+  latest: { pathname: string; uploadedAt: string; size: number } | null;
+};
+
 export default function SettingsPage() {
   const [items, setItems] = useState<ItemDto[]>([]);
   const [name, setName] = useState("");
   const [nameSaved, setNameSaved] = useState(false);
+  const [backup, setBackup] = useState<BackupStatus | null>(null);
 
   useEffect(() => {
     api<ItemDto[]>("/api/items").then(setItems).catch(() => {});
+    api<BackupStatus>("/api/backup/status").then(setBackup).catch(() => {});
     setName(readUserCookie());
   }, []);
 
@@ -101,6 +108,33 @@ export default function SettingsPage() {
               <span style={{ color: "var(--mute)" }}>{n}</span>
             </div>
           ))}
+        </div>
+
+        <div className="settings-item">
+          <div style={{ fontWeight: 600, marginBottom: 6 }}>Бэкап базы</div>
+          <p style={{ fontSize: 13, color: "var(--mute)", marginBottom: 12 }}>
+            Один JSON со всеми таблицами: товары, фото (ссылки), история.
+            Автобэкап — раз в неделю, храним последние 8.
+            {backup?.latest ? (
+              <>
+                <br />
+                Последний автобэкап:{" "}
+                {new Date(backup.latest.uploadedAt).toLocaleDateString("ru-RU", {
+                  day: "numeric",
+                  month: "long",
+                })}{" "}
+                ({Math.round(backup.latest.size / 1024)} КБ, всего {backup.count})
+              </>
+            ) : backup ? (
+              <>
+                <br />
+                Автобэкапов пока нет — первый будет в понедельник.
+              </>
+            ) : null}
+          </p>
+          <a href="/api/backup" className="btn primary">
+            Скачать бэкап
+          </a>
         </div>
 
         <div className="settings-item">
