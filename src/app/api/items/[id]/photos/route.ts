@@ -18,7 +18,9 @@ export async function POST(req: NextRequest, { params }: Params) {
     return NextResponse.json({ error: "Файл не передан" }, { status: 400 });
   }
 
-  const buf = Buffer.from(await file.arrayBuffer());
+  // Копия в обычный ArrayBuffer: file.arrayBuffer() может быть на базе
+  // SharedArrayBuffer, который fetch внутри @vercel/blob не принимает.
+  const buf = Buffer.from(new Uint8Array(await file.arrayBuffer()));
   // Миниатюра для сетки списка — чтобы не гонять оригинал 1600px.
   const thumb = await sharp(buf).resize(400, 400, { fit: "cover" }).jpeg({ quality: 70 }).toBuffer();
 
