@@ -10,6 +10,7 @@ import {
   boolean,
   jsonb,
   index,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
 
 export const staatEnum = pgEnum("staat", ["nieuw", "als_nieuw", "gebruikt"]);
@@ -62,6 +63,20 @@ export const itemEvents = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("item_events_item_idx").on(t.itemId), index("item_events_created_idx").on(t.createdAt)],
+);
+
+export const shopifyImports = pgTable(
+  "shopify_imports",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orderName: text("order_name").notNull(),
+    lineitemName: text("lineitem_name").notNull(),
+    itemId: uuid("item_id")
+      .notNull()
+      .references(() => items.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("shopify_imports_order_line_idx").on(t.orderName, t.lineitemName)],
 );
 
 export type Item = typeof items.$inferSelect;

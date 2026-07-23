@@ -156,6 +156,17 @@ export default function SettingsPage() {
         </div>
 
         <div className="settings-item">
+          <div style={{ fontWeight: 600, marginBottom: 6 }}>Импорт из Shopify</div>
+          <p style={{ fontSize: 13, color: "var(--mute)", marginBottom: 12 }}>
+            Загрузите CSV-экспорт заказов — приложение найдёт совпадения со складом
+            и отметит продажи после вашего подтверждения.
+          </p>
+          <Link href="/import" className="btn primary">
+            Импорт продаж
+          </Link>
+        </div>
+
+        <div className="settings-item">
           <div style={{ fontWeight: 600, marginBottom: 6 }}>QR-этикетки</div>
           <p style={{ fontSize: 13, color: "var(--mute)", marginBottom: 12 }}>
             Лист с QR-кодами для коробок и полок: навёл камеру — открылась карточка.

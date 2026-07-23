@@ -77,6 +77,8 @@ export function humanizeEvent(e: EventDto): string {
       const to = d.to ? fmtPrice(String(d.to)) : "—";
       return `${label}: ${d.from ? fmtPrice(String(d.from)) : "—"} → ${to}`;
     }
+    case "sold_shopify":
+      return `продан (импорт Shopify, заказ ${d.order ?? "?"}${d.price ? " за " + fmtPrice(String(d.price)) : ""})`;
     case "photo_added":
       return "фото добавлено";
     case "photo_deleted":
