@@ -2,9 +2,16 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
-import archiver from "archiver";
+import { createRequire } from "module";
 import { PassThrough, Readable } from "stream";
 import { buildBackup } from "@/lib/backup";
+import type { Archiver, ArchiverOptions } from "archiver";
+
+// CJS-модуль без default-экспорта — Turbopack не пропускает обычный import.
+const archiver = createRequire(import.meta.url)("archiver") as (
+  format: "zip",
+  options?: ArchiverOptions,
+) => Archiver;
 
 export async function GET() {
   const dump = await buildBackup();
