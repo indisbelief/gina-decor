@@ -1,3 +1,5 @@
+export const runtime = "nodejs";
+
 import { NextRequest, NextResponse } from "next/server";
 import { put } from "@vercel/blob";
 import sharp from "sharp";
@@ -18,16 +20,30 @@ export async function POST(req: NextRequest, { params }: Params) {
     return NextResponse.json({ error: "Файл не передан" }, { status: 400 });
   }
 
-  // Копия в обычный ArrayBuffer: file.arrayBuffer() может быть на базе
-  // SharedArrayBuffer, который fetch внутри @vercel/blob не принимает.
-  const buf = Buffer.from(new Uint8Array(await file.arrayBuffer()));
+  // toNormalBuffer: буферы здесь могут оказаться на базе SharedArrayBuffer
+  // (file.arrayBuffer() в проде, выдача sharp), а fetch внутри @vercel/blob
+  // такие не принимает — копируем в обычный ArrayBuffer.
+  const toNormalBuffer = (u8: Uint8Array) => {
+    const copy = new ArrayBuffer(u8.byteLength);
+    new Uint8Array(copy).set(u8);
+    return copy;
+  };
+
+  const raw = new Uint8Array(await file.arrayBuffer());
+  const buf = Buffer.from(toNormalBuffer(raw));
   // Миниатюра для сетки списка — чтобы не гонять оригинал 1600px.
   const thumb = await sharp(buf).resize(400, 400, { fit: "cover" }).jpeg({ quality: 70 }).toBuffer();
 
   const ts = Date.now();
   const [blob, thumbBlob] = await Promise.all([
-    put(`items/${id}/${ts}.jpg`, buf, { access: "public", contentType: file.type || "image/jpeg" }),
-    put(`items/${id}/${ts}-thumb.jpg`, thumb, { access: "public", contentType: "image/jpeg" }),
+    put(`items/${id}/${ts}.jpg`, toNormalBuffer(buf), {
+      access: "public",
+      contentType: file.type || "image/jpeg",
+    }),
+    put(`items/${id}/${ts}-thumb.jpg`, toNormalBuffer(thumb), {
+      access: "public",
+      contentType: "image/jpeg",
+    }),
   ]);
 
   const [{ count }] = await db
