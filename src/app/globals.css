@@ -134,84 +134,161 @@ header.app {
   border-color: var(--cobalt);
 }
 
-.list {
+.grid {
   padding: 4px 16px 96px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
 }
 
-.card {
-  display: flex;
-  gap: 12px;
+@media (min-width: 768px) {
+  .grid {
+    grid-template-columns: repeat(3, 1fr);
+    max-width: 800px;
+    margin: 0 auto;
+  }
+}
+
+.gspan {
+  grid-column: 1 / -1;
+}
+
+.gcard {
   background: #fff;
   border: 1px solid var(--line);
   border-radius: 14px;
-  padding: 10px;
-  align-items: center;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
-.thumb {
-  width: 64px;
-  height: 64px;
-  border-radius: 10px;
+.gcard.sold {
+  opacity: 0.7;
+}
+
+.gphoto {
+  position: relative;
+  aspect-ratio: 1;
   background: var(--porc);
-  object-fit: cover;
-  flex-shrink: 0;
+}
+
+.gphoto > a {
+  position: absolute;
+  inset: 0;
+  display: block;
+}
+
+.gnophoto {
+  position: absolute;
+  inset: 0;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 7px;
   color: var(--mute);
-  font-size: 22px;
-  overflow: hidden;
-}
-
-.thumb img {
   width: 100%;
-  height: 100%;
-  object-fit: cover;
 }
 
-.card .info {
-  flex: 1;
-  min-width: 0;
+.gnophoto .cam {
+  font-size: 34px;
+  opacity: 0.55;
 }
 
-.card .title {
+.nophoto-badge {
+  font-size: 11px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 2px 9px;
+  color: var(--mute);
+}
+
+.gstatus {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 3px 9px;
+  border-radius: 999px;
+  letter-spacing: 0.3px;
+  pointer-events: none;
+}
+
+.gstatus.voorraad {
+  background: var(--green);
+  color: #fff;
+}
+
+.gstatus.verkocht {
+  background: #f2b01e;
+  color: #4a3800;
+}
+
+.gstatus.reserv {
+  background: var(--gold);
+  color: #fff;
+}
+
+.gbody {
+  display: block;
+  padding: 9px 10px 0;
+}
+
+.gtitle {
   font-weight: 600;
-  font-size: 15px;
+  font-size: 13.5px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.card .sub {
-  font-size: 12.5px;
+.gsub {
+  font-size: 11.5px;
   color: var(--mute);
   margin-top: 2px;
+  min-height: 15px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.card .price {
-  font-family: Georgia, serif;
-  font-weight: 700;
-  font-size: 15px;
-  margin-top: 3px;
+.gfoot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 7px 10px 10px;
+  margin-top: auto;
 }
 
-.sold-btn {
+.gprice {
+  font-family: Georgia, serif;
+  font-weight: 700;
+  font-size: 17px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gcard.sold .gprice {
+  text-decoration: line-through;
+  color: var(--mute);
+}
+
+.gbtn {
   flex-shrink: 0;
-  padding: 12px 14px;
-  border-radius: 12px;
+  padding: 8px 11px;
+  border-radius: 10px;
   background: var(--green);
   color: #fff;
   font-weight: 600;
-  font-size: 13px;
+  font-size: 12px;
 }
 
-.sold-btn.undo {
+.gbtn.undo {
   background: var(--porc);
   color: var(--mute);
   border: 1px solid var(--line);

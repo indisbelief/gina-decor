@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { api, fmtPrice, listPrice, type ItemDto } from "@/lib/client";
+import Image from "next/image";
+import { api, compressImage, fmtPrice, listPrice, type ItemDto } from "@/lib/client";
 
 type StatusFilter = "all" | "voorraad" | "verkocht";
 type Sort = "date" | "price" | "brand";
@@ -17,6 +18,9 @@ export default function ListPage() {
   const [sort, setSort] = useState<Sort>("date");
   const [sellItem, setSellItem] = useState<ItemDto | null>(null);
   const [sellPrice, setSellPrice] = useState("");
+  const [uploadingId, setUploadingId] = useState<string | null>(null);
+  const camRef = useRef<HTMLInputElement>(null);
+  const camItemId = useRef<string | null>(null);
 
   async function load() {
     try {
@@ -96,6 +100,30 @@ export default function ListPage() {
       await api(`/api/items/${it.id}`, { method: "PATCH", body: JSON.stringify(body) });
     } finally {
       load();
+    }
+  }
+
+  function openCamera(it: ItemDto) {
+    camItemId.current = it.id;
+    camRef.current?.click();
+  }
+
+  async function onCameraFile(files: FileList | null) {
+    const itemId = camItemId.current;
+    if (!files?.length || !itemId) return;
+    setUploadingId(itemId);
+    try {
+      const blob = await compressImage(files[0]);
+      const fd = new FormData();
+      fd.append("file", blob, "photo.jpg");
+      await api(`/api/items/${itemId}/photos`, { method: "POST", body: fd });
+      await load();
+    } catch (e) {
+      alert((e as Error).message);
+    } finally {
+      setUploadingId(null);
+      camItemId.current = null;
+      if (camRef.current) camRef.current.value = "";
     }
   }
 
@@ -188,48 +216,86 @@ export default function ListPage() {
         </div>
       </div>
 
-      <main className="list">
-        {items === null && <div className="empty">Загружаю…</div>}
-        {items !== null && filtered.length === 0 && <div className="empty">Ничего не найдено</div>}
-        {filtered.map((it) => (
-          <div className="card" key={it.id}>
-            <Link href={`/item/${it.id}`} className="thumb">
-              {it.hoofdfoto ? <img src={it.hoofdfoto} alt="" loading="lazy" /> : <span>🏺</span>}
-            </Link>
-            <Link href={`/item/${it.id}`} className="info">
-              <div className="title">
-                {it.merk}
-                {it.model ? ` · ${it.model}` : ""}
+      <main className="grid">
+        {items === null && <div className="empty gspan">Загружаю…</div>}
+        {items !== null && filtered.length === 0 && <div className="empty gspan">Ничего не найдено</div>}
+        {filtered.map((it) => {
+          const sold = it.status === "verkocht";
+          const sub = [it.soort, it.aantalDelen ? `${it.aantalDelen} ч.` : null, it.locatie]
+            .filter(Boolean)
+            .join(" · ");
+          return (
+            <div className={`gcard ${sold ? "sold" : ""}`} key={it.id}>
+              <div className="gphoto">
+                {it.hoofdfoto ? (
+                  <Link href={`/item/${it.id}`}>
+                    <Image
+                      src={it.hoofdfoto}
+                      alt={it.merk}
+                      fill
+                      sizes="(max-width: 767px) 50vw, 246px"
+                      style={{ objectFit: "cover" }}
+                    />
+                  </Link>
+                ) : (
+                  <button
+                    className="gnophoto"
+                    onClick={() => openCamera(it)}
+                    disabled={uploadingId === it.id}
+                    aria-label="Сделать фото"
+                  >
+                    <span className="cam">📷</span>
+                    <span className="nophoto-badge">
+                      {uploadingId === it.id ? "загружаю…" : "нет фото"}
+                    </span>
+                  </button>
+                )}
+                <span
+                  className={`gstatus ${
+                    sold ? "verkocht" : it.status === "gereserveerd" ? "reserv" : "voorraad"
+                  }`}
+                >
+                  {sold ? "продано" : it.status === "gereserveerd" ? "резерв" : "в наличии"}
+                </span>
               </div>
-              <div className="sub">
-                {[it.soort, it.aantalDelen ? `${it.aantalDelen} ч.` : null, it.locatie]
-                  .filter(Boolean)
-                  .join(" · ")}
+              <Link href={`/item/${it.id}`} className="gbody">
+                <div className="gtitle">
+                  {it.merk}
+                  {it.model ? ` · ${it.model}` : ""}
+                </div>
+                <div className="gsub">{sub || " "}</div>
+              </Link>
+              <div className="gfoot">
+                <span className="gprice serif">{fmtPrice(listPrice(it))}</span>
+                {sold ? (
+                  <button className="gbtn undo" onClick={() => toggleSold(it)}>
+                    Вернуть
+                  </button>
+                ) : (
+                  <button
+                    className="gbtn"
+                    onClick={() => {
+                      setSellItem(it);
+                      setSellPrice("");
+                    }}
+                  >
+                    Продано
+                  </button>
+                )}
               </div>
-              <div className="price">
-                {fmtPrice(listPrice(it))}{" "}
-                {it.status === "verkocht" && <span className="badge verkocht">продано</span>}
-                {it.status === "gereserveerd" && <span className="badge gereserveerd">резерв</span>}
-              </div>
-            </Link>
-            {it.status === "verkocht" ? (
-              <button className="sold-btn undo" onClick={() => toggleSold(it)}>
-                Вернуть
-              </button>
-            ) : (
-              <button
-                className="sold-btn"
-                onClick={() => {
-                  setSellItem(it);
-                  setSellPrice("");
-                }}
-              >
-                Продано
-              </button>
-            )}
-          </div>
-        ))}
+            </div>
+          );
+        })}
       </main>
+
+      <input
+        ref={camRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        hidden
+        onChange={(e) => onCameraFile(e.target.files)}
+      />
 
       <Link href="/new" className="fab" aria-label="Добавить товар">
         +
