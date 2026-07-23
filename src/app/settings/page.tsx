@@ -17,7 +17,16 @@ function readUserCookie(): string {
 type BackupStatus = {
   count: number;
   latest: { pathname: string; uploadedAt: string; size: number } | null;
+  fullSize: number;
 };
+
+function fmtSize(bytes: number): string {
+  if (bytes >= 1024 * 1024 * 1024) return (bytes / 1024 / 1024 / 1024).toFixed(1) + " ГБ";
+  if (bytes >= 1024 * 1024) return Math.round(bytes / 1024 / 1024) + " МБ";
+  return Math.max(1, Math.round(bytes / 1024)) + " КБ";
+}
+
+const BIG_BACKUP = 200 * 1024 * 1024;
 
 export default function SettingsPage() {
   const [items, setItems] = useState<ItemDto[]>([]);
@@ -132,9 +141,20 @@ export default function SettingsPage() {
               </>
             ) : null}
           </p>
-          <a href="/api/backup" className="btn primary">
-            Скачать бэкап
-          </a>
+          <div className="stack" style={{ marginTop: 0 }}>
+            <a href="/api/backup" className="btn primary">
+              Скачать бэкап
+            </a>
+            <a href="/api/backup/full" className="btn ghost">
+              Скачать полный бэкап (с фото)
+              {backup ? ` · ≈${fmtSize(backup.fullSize)}` : ""}
+            </a>
+          </div>
+          {backup && backup.fullSize > BIG_BACKUP && (
+            <p style={{ fontSize: 12.5, color: "var(--gold)", marginTop: 10 }}>
+              ⚠ Полный бэкап больше 200 МБ — скачивание займёт время, не закрывайте вкладку.
+            </p>
+          )}
         </div>
 
         <div className="settings-item">
