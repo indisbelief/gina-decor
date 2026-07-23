@@ -12,7 +12,7 @@ export async function DELETE(_req: NextRequest, { params }: Params) {
   if (!photo) return NextResponse.json({ error: "not found" }, { status: 404 });
 
   try {
-    await del(photo.url);
+    await del([photo.url, ...(photo.thumbUrl ? [photo.thumbUrl] : [])]);
   } catch {
     // Файл в Blob мог быть удалён вручную — запись в БД важнее.
   }

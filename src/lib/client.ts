@@ -25,6 +25,7 @@ export type PhotoDto = {
   id: string;
   itemId: string;
   url: string;
+  thumbUrl: string | null;
   volgorde: number;
   isHoofdfoto: boolean;
 };

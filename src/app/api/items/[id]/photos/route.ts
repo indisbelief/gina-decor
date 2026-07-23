@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { put } from "@vercel/blob";
+import sharp from "sharp";
 import { db } from "@/db";
 import { items, photos } from "@/db/schema";
 import { eq, sql } from "drizzle-orm";
@@ -17,10 +18,15 @@ export async function POST(req: NextRequest, { params }: Params) {
     return NextResponse.json({ error: "Файл не передан" }, { status: 400 });
   }
 
-  const blob = await put(`items/${id}/${Date.now()}.jpg`, file, {
-    access: "public",
-    contentType: file.type || "image/jpeg",
-  });
+  const buf = Buffer.from(await file.arrayBuffer());
+  // Миниатюра для сетки списка — чтобы не гонять оригинал 1600px.
+  const thumb = await sharp(buf).resize(400, 400, { fit: "cover" }).jpeg({ quality: 70 }).toBuffer();
+
+  const ts = Date.now();
+  const [blob, thumbBlob] = await Promise.all([
+    put(`items/${id}/${ts}.jpg`, buf, { access: "public", contentType: file.type || "image/jpeg" }),
+    put(`items/${id}/${ts}-thumb.jpg`, thumb, { access: "public", contentType: "image/jpeg" }),
+  ]);
 
   const [{ count }] = await db
     .select({ count: sql<number>`count(*)::int` })
@@ -32,6 +38,7 @@ export async function POST(req: NextRequest, { params }: Params) {
     .values({
       itemId: id,
       url: blob.url,
+      thumbUrl: thumbBlob.url,
       volgorde: count,
       isHoofdfoto: count === 0,
     })

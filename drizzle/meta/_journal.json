@@ -8,6 +8,13 @@
       "when": 1784811203631,
       "tag": "0000_hot_nova",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1784814882823,
+      "tag": "0001_flimsy_leech",
+      "breakpoints": true
     }
   ]
 }

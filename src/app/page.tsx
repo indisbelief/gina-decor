@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import Image from "next/image";
 import { api, compressImage, fmtPrice, listPrice, type ItemDto } from "@/lib/client";
 
 type StatusFilter = "all" | "voorraad" | "verkocht";
@@ -229,13 +228,8 @@ export default function ListPage() {
               <div className="gphoto">
                 {it.hoofdfoto ? (
                   <Link href={`/item/${it.id}`}>
-                    <Image
-                      src={it.hoofdfoto}
-                      alt={it.merk}
-                      fill
-                      sizes="(max-width: 767px) 50vw, 246px"
-                      style={{ objectFit: "cover" }}
-                    />
+                    {/* hoofdfoto из API — это thumb ~400px, не оригинал */}
+                    <img src={it.hoofdfoto} alt={it.merk} loading="lazy" />
                   </Link>
                 ) : (
                   <button

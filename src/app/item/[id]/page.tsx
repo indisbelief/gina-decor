@@ -125,7 +125,7 @@ export default function ItemPage({ params }: { params: Promise<{ id: string }> }
         <div className="gallery">
           {item.photos.map((p) => (
             <div key={p.id} className={`ph ${p.isHoofdfoto ? "main" : ""}`}>
-              <img src={p.url} alt="" onClick={() => makeMain(p)} />
+              <img src={p.thumbUrl ?? p.url} alt="" loading="lazy" onClick={() => makeMain(p)} />
               <button className="del" onClick={() => deletePhoto(p)} aria-label="Удалить фото">
                 ✕
               </button>

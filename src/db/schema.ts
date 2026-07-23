@@ -41,6 +41,7 @@ export const photos = pgTable("photos", {
     .notNull()
     .references(() => items.id, { onDelete: "cascade" }),
   url: text("url").notNull(),
+  thumbUrl: text("thumb_url"),
   volgorde: integer("volgorde").notNull().default(0),
   isHoofdfoto: boolean("is_hoofdfoto").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
