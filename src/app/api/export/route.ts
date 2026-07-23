@@ -1,65 +1,115 @@
 export const dynamic = "force-dynamic";
 
+import { NextRequest } from "next/server";
 import { db } from "@/db";
-import { items } from "@/db/schema";
-import { asc, isNull } from "drizzle-orm";
-
-const COLS = [
-  "sku",
-  "merk",
-  "model",
-  "soort",
-  "aantalDelen",
-  "staat",
-  "locatie",
-  "inkoopprijs",
-  "vraagprijs",
-  "verkoopprijs",
-  "inkoopdatum",
-  "verkoopdatum",
-  "leverancier",
-  "status",
-  "notities",
-  "createdAt",
-] as const;
+import { items, type Item } from "@/db/schema";
+import { and, asc, gte, inArray, isNull, lte, ne, eq, type SQL } from "drizzle-orm";
+import type { AnyPgColumn } from "drizzle-orm/pg-core";
 
 const HEADER = [
-  "SKU",
-  "Бренд",
-  "Модель",
-  "Тип",
-  "Частей",
-  "Состояние",
-  "Место",
-  "Цена закупки",
-  "Цена продажи (запрос)",
-  "Цена продажи (факт)",
-  "Дата закупки",
-  "Дата продажи",
-  "Поставщик",
-  "Статус",
-  "Заметки",
-  "Добавлено",
+  "Artikelnr",
+  "Merk",
+  "Model",
+  "Soort",
+  "Aantal delen",
+  "Locatie",
+  "Leverancier",
+  "Inkoopdatum",
+  "Inkoopprijs",
+  "Verkoopdatum",
+  "Verkoopprijs",
+  "Status",
+  "Notities",
 ];
 
-function csvCell(v: unknown): string {
-  if (v == null) return "";
-  const s = v instanceof Date ? v.toISOString().slice(0, 10) : String(v);
-  return /[";\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+// NL-Excel: точка с запятой как разделитель, десятичная запятая,
+// даты DD-MM-YYYY, UTF-8 с BOM.
+function cell(v: string): string {
+  return /[";\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
 }
 
-export async function GET() {
-  const rows = await db.select().from(items).where(isNull(items.archivedAt)).orderBy(asc(items.sku));
-  const lines = [
-    HEADER.join(";"),
-    ...rows.map((r) => COLS.map((c) => csvCell(r[c])).join(";")),
-  ];
-  // BOM — чтобы Excel корректно открыл UTF-8.
-  const csv = "﻿" + lines.join("\r\n");
+function nlNumber(v: string | null): string {
+  if (v == null || v === "") return "";
+  const n = parseFloat(v);
+  return Number.isFinite(n) ? n.toFixed(2).replace(".", ",") : "";
+}
+
+function nlDate(iso: string | null): string {
+  if (!iso) return "";
+  const [y, m, d] = iso.split("-");
+  return `${d}-${m}-${y}`;
+}
+
+function row(it: Item): string {
+  return [
+    it.sku,
+    it.merk,
+    it.model ?? "",
+    it.soort ?? "",
+    it.aantalDelen != null ? String(it.aantalDelen) : "",
+    it.locatie ?? "",
+    it.leverancier ?? "",
+    nlDate(it.inkoopdatum),
+    nlNumber(it.inkoopprijs),
+    nlDate(it.verkoopdatum),
+    nlNumber(it.verkoopprijs),
+    it.status,
+    it.notities ?? "",
+  ]
+    .map(cell)
+    .join(";");
+}
+
+export async function GET(req: NextRequest) {
+  const p = req.nextUrl.searchParams;
+  const mode = p.get("mode") ?? "voorraad";
+  const from = p.get("from");
+  const to = p.get("to");
+  const ids = p.get("ids")?.split(",").filter(Boolean);
+  const label = (p.get("label") ?? new Date().toISOString().slice(0, 10)).replace(/[^\w.-]/g, "_");
+
+  const conds: SQL[] = [isNull(items.archivedAt)];
+  let orderCol: AnyPgColumn = items.sku;
+
+  if (ids?.length) {
+    conds.push(inArray(items.id, ids));
+  } else if (mode === "verkocht") {
+    conds.push(eq(items.status, "verkocht"));
+    if (from) conds.push(gte(items.verkoopdatum, from));
+    if (to) conds.push(lte(items.verkoopdatum, to));
+    orderCol = items.verkoopdatum;
+  } else if (mode === "ingekocht") {
+    if (from) conds.push(gte(items.inkoopdatum, from));
+    if (to) conds.push(lte(items.inkoopdatum, to));
+    orderCol = items.inkoopdatum;
+  } else {
+    conds.push(ne(items.status, "verkocht"));
+  }
+
+  const rows = await db
+    .select()
+    .from(items)
+    .where(and(...conds))
+    .orderBy(asc(orderCol), asc(items.sku));
+
+  const sumIn = rows.reduce((a, r) => a + (parseFloat(r.inkoopprijs ?? "") || 0), 0);
+  const sumOut = rows.reduce((a, r) => a + (parseFloat(r.verkoopprijs ?? "") || 0), 0);
+  const totaal = [
+    "Totaal",
+    ...Array(7).fill(""),
+    sumIn.toFixed(2).replace(".", ","),
+    "",
+    sumOut.toFixed(2).replace(".", ","),
+    "",
+    "",
+  ].join(";");
+
+  const csv = "﻿" + [HEADER.join(";"), ...rows.map(row), totaal].join("\r\n");
+  const modeName = ids?.length ? "selectie" : mode;
   return new Response(csv, {
     headers: {
       "Content-Type": "text/csv; charset=utf-8",
-      "Content-Disposition": `attachment; filename="gina-decor-${new Date().toISOString().slice(0, 10)}.csv"`,
+      "Content-Disposition": `attachment; filename="gina-decor_${modeName}_${label}.csv"`,
     },
   });
 }

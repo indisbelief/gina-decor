@@ -32,6 +32,8 @@ export default function ListPage() {
   const [sellPrice, setSellPrice] = useState("");
   const [uploadingId, setUploadingId] = useState<string | null>(null);
   const [toast, setToast] = useState<UndoState>(null);
+  const [selectMode, setSelectMode] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const camRef = useRef<HTMLInputElement>(null);
   const camItemId = useRef<string | null>(null);
   const barRef = useRef<HTMLDivElement>(null);
@@ -159,6 +161,58 @@ export default function ListPage() {
     }
   }
 
+  function exitSelect() {
+    setSelectMode(false);
+    setSelected(new Set());
+  }
+
+  function toggleSelect(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  async function batchSold() {
+    const chosen = (items ?? []).filter((i) => selected.has(i.id) && i.status !== "verkocht");
+    if (!chosen.length) {
+      exitSelect();
+      return;
+    }
+    const snapshots = chosen.map((i) => ({
+      id: i.id,
+      status: i.status,
+      verkoopprijs: i.verkoopprijs,
+      verkoopdatum: i.verkoopdatum,
+    }));
+    setItems((prev) => prev?.map((i) => (selected.has(i.id) ? { ...i, status: "verkocht" } : i)) ?? null);
+    exitSelect();
+    try {
+      for (const i of chosen) {
+        await api(`/api/items/${i.id}`, { method: "PATCH", body: JSON.stringify({ status: "verkocht" }) });
+      }
+      setToast({
+        label: `Продано: ${chosen.length} шт.`,
+        undo: async () => {
+          for (const s of snapshots) {
+            const { id, ...body } = s;
+            await api(`/api/items/${id}`, { method: "PATCH", body: JSON.stringify(body) });
+          }
+          load();
+        },
+      });
+    } finally {
+      load();
+    }
+  }
+
+  function exportSelectedUrl() {
+    const label = `selectie_${new Date().toISOString().slice(0, 10)}`;
+    return `/api/export?ids=${Array.from(selected).join(",")}&label=${label}`;
+  }
+
   function openCamera(it: ItemDto) {
     camItemId.current = it.id;
     camRef.current?.click();
@@ -188,6 +242,37 @@ export default function ListPage() {
     const sub = [it.soort, it.aantalDelen ? `${it.aantalDelen} ч.` : null, it.locatie]
       .filter(Boolean)
       .join(" · ");
+    if (selectMode) {
+      const on = selected.has(it.id);
+      return (
+        <div
+          key={it.id}
+          className={`gcard sel ${on ? "sel-on" : ""} ${sold ? "sold" : ""}`}
+          onClick={() => toggleSelect(it.id)}
+        >
+          <div className="gphoto">
+            {it.hoofdfoto ? (
+              <img src={it.hoofdfoto} alt={it.merk} loading="lazy" />
+            ) : (
+              <div className="gcamwrap" style={{ pointerEvents: "none" }}>
+                <span style={{ fontSize: 30, opacity: 0.4 }}>🏺</span>
+              </div>
+            )}
+            <span className={`sel-check ${on ? "on" : ""}`}>{on ? "✓" : ""}</span>
+          </div>
+          <div className="gbody">
+            <div className="gtitle">
+              {it.merk}
+              {it.model ? ` · ${it.model}` : ""}
+            </div>
+            <div className="gsub">{sub || " "}</div>
+          </div>
+          <div className="gfoot">
+            <span className="gprice serif">{fmtPrice(listPrice(it))}</span>
+          </div>
+        </div>
+      );
+    }
     return (
       <SwipeCard
         key={it.id}
@@ -318,6 +403,12 @@ export default function ListPage() {
           >
             {grouped ? "По локациям ✓" : "По локациям"}
           </button>
+          <button
+            className={`chip ${selectMode ? "on" : ""}`}
+            onClick={() => (selectMode ? exitSelect() : setSelectMode(true))}
+          >
+            {selectMode ? "Выбор ✓" : "Выбрать"}
+          </button>
           <select
             className={`chip ${loc ? "on" : ""}`}
             style={{ width: "auto", padding: "7px 10px" }}
@@ -383,6 +474,28 @@ export default function ListPage() {
       />
 
       <UndoToast toast={toast} onDone={closeToast} />
+      {selectMode && (
+        <div className="sel-panel">
+          <span className="sel-count">{selected.size} выбрано</span>
+          <a
+            className="sel-act"
+            href={selected.size ? exportSelectedUrl() : undefined}
+            style={selected.size ? undefined : { opacity: 0.4, pointerEvents: "none" }}
+          >
+            Экспорт CSV
+          </a>
+          <button
+            className="sel-act"
+            disabled={!selected.size}
+            onClick={batchSold}
+          >
+            Отметить проданными
+          </button>
+          <button className="sel-act cancel" onClick={exitSelect}>
+            Отмена
+          </button>
+        </div>
+      )}
       <BottomNav />
 
       {sellItem && (

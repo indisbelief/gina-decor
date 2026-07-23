@@ -316,6 +316,83 @@ header.app {
   border: 1px solid var(--line);
 }
 
+/* ---------- режим выбора ---------- */
+
+.gcard.sel {
+  cursor: pointer;
+  user-select: none;
+}
+
+.gcard.sel-on {
+  outline: 3px solid var(--cobalt);
+  outline-offset: -3px;
+}
+
+.sel-check {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  background: rgba(0, 0, 0, 0.25);
+  color: #fff;
+  font-size: 15px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+}
+
+.sel-check.on {
+  background: var(--cobalt);
+  border-color: var(--cobalt);
+}
+
+.sel-panel {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: calc(62px + env(safe-area-inset-bottom));
+  background: var(--ink);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 10px;
+  z-index: 16;
+  font-size: 13px;
+  animation: toast-in 0.18s ease-out;
+}
+
+.sel-count {
+  font-weight: 700;
+  padding: 0 8px;
+  flex-shrink: 0;
+}
+
+.sel-act {
+  color: #ffd57e;
+  font-weight: 600;
+  padding: 10px 8px;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  white-space: nowrap;
+  font-size: 12.5px;
+}
+
+.sel-act:disabled {
+  opacity: 0.4;
+}
+
+.sel-act.cancel {
+  color: rgba(255, 255, 255, 0.7);
+  margin-left: auto;
+}
+
 /* ---------- секции по локациям ---------- */
 
 .gsection-wrap {
