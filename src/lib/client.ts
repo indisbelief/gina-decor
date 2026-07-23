@@ -30,6 +30,96 @@ export type PhotoDto = {
   isHoofdfoto: boolean;
 };
 
+export type EventDto = {
+  id: string;
+  itemId: string;
+  type: string;
+  actor: string | null;
+  details: Record<string, unknown> | null;
+  createdAt: string;
+  sku?: string;
+  merk?: string;
+  model?: string;
+  locatie?: string | null;
+};
+
+const FIELD_LABEL: Record<string, string> = {
+  merk: "бренд",
+  model: "модель",
+  soort: "тип",
+  aantalDelen: "кол-во частей",
+  staat: "состояние",
+  locatie: "место",
+  inkoopprijs: "цена закупки",
+  vraagprijs: "цена (запрос)",
+  verkoopprijs: "цена продажи",
+  inkoopdatum: "дата закупки",
+  verkoopdatum: "дата продажи",
+  leverancier: "поставщик",
+  notities: "заметки",
+};
+
+export function humanizeEvent(e: EventDto): string {
+  const d = (e.details ?? {}) as Record<string, unknown>;
+  switch (e.type) {
+    case "created":
+      return "создан";
+    case "sold":
+      return d.price ? `отмечен проданным за ${fmtPrice(String(d.price))}` : "отмечен проданным";
+    case "returned":
+      return "возвращён в наличие";
+    case "reserved":
+      return "поставлен в резерв";
+    case "status_changed":
+      return "статус изменён";
+    case "price_changed": {
+      const label = FIELD_LABEL[String(d.field)] ?? "цена";
+      const to = d.to ? fmtPrice(String(d.to)) : "—";
+      return `${label}: ${d.from ? fmtPrice(String(d.from)) : "—"} → ${to}`;
+    }
+    case "photo_added":
+      return "фото добавлено";
+    case "photo_deleted":
+      return "фото удалено";
+    case "archived":
+      return "убран в архив";
+    case "unarchived":
+      return "возвращён из архива";
+    case "updated": {
+      const fields = Array.isArray(d.fields) ? d.fields : [];
+      return `изменено: ${fields.map((f) => FIELD_LABEL[String(f)] ?? f).join(", ")}`;
+    }
+    default:
+      return e.type;
+  }
+}
+
+export function relDate(iso: string): string {
+  const then = new Date(iso);
+  const today = new Date();
+  const days = Math.floor(
+    (new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime() -
+      new Date(then.getFullYear(), then.getMonth(), then.getDate()).getTime()) /
+      86400000,
+  );
+  const time = then.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+  if (days === 0) return `сегодня ${time}`;
+  if (days === 1) return `вчера ${time}`;
+  if (days < 7) return `${days} дн. назад`;
+  return then.toLocaleDateString("ru-RU", { day: "numeric", month: "short" });
+}
+
+// Передача undo-тоста между экранами (например, архив в карточке → тост в списке).
+let pendingUndo: { label: string; undo: () => Promise<void> | void } | null = null;
+export function setPendingUndo(p: typeof pendingUndo) {
+  pendingUndo = p;
+}
+export function takePendingUndo() {
+  const p = pendingUndo;
+  pendingUndo = null;
+  return p;
+}
+
 export const STAAT_LABEL: Record<string, string> = {
   nieuw: "Новый",
   als_nieuw: "Как новый",

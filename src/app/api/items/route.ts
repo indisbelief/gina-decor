@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { items } from "@/db/schema";
 import { desc, isNull, sql } from "drizzle-orm";
+import { getActor, logEvents } from "@/lib/events";
 
 export async function GET() {
   const rows = await db
@@ -56,5 +57,8 @@ export async function POST(req: NextRequest) {
       status: body.status || "voorraad",
     })
     .returning();
+  await logEvents(created.id, getActor(req), [
+    { type: "created", details: { merk: created.merk, model: created.model } },
+  ]);
   return NextResponse.json(created, { status: 201 });
 }

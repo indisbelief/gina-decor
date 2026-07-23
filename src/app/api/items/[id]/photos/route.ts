@@ -6,6 +6,7 @@ import sharp from "sharp";
 import { db } from "@/db";
 import { items, photos } from "@/db/schema";
 import { eq, sql } from "drizzle-orm";
+import { getActor, logEvents } from "@/lib/events";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -62,5 +63,6 @@ export async function POST(req: NextRequest, { params }: Params) {
     })
     .returning();
 
+  await logEvents(id, getActor(req), [{ type: "photo_added", details: { thumb: thumbBlob.url } }]);
   return NextResponse.json(created, { status: 201 });
 }

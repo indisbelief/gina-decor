@@ -1,13 +1,25 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { api, compressImage, fmtPrice, listPrice, type ItemDto } from "@/lib/client";
+import { useRouter } from "next/navigation";
+import {
+  api,
+  compressImage,
+  fmtPrice,
+  listPrice,
+  takePendingUndo,
+  type ItemDto,
+} from "@/lib/client";
+import { BottomNav } from "@/components/BottomNav";
+import { SwipeCard } from "@/components/SwipeCard";
+import { UndoToast, type UndoState } from "@/components/UndoToast";
 
 type StatusFilter = "all" | "voorraad" | "verkocht";
 type Sort = "date" | "price" | "brand";
 
 export default function ListPage() {
+  const router = useRouter();
   const [items, setItems] = useState<ItemDto[] | null>(null);
   const [offline, setOffline] = useState(false);
   const [q, setQ] = useState("");
@@ -15,11 +27,14 @@ export default function ListPage() {
   const [loc, setLoc] = useState<string>("");
   const [brand, setBrand] = useState<string>("");
   const [sort, setSort] = useState<Sort>("date");
+  const [grouped, setGrouped] = useState(false);
   const [sellItem, setSellItem] = useState<ItemDto | null>(null);
   const [sellPrice, setSellPrice] = useState("");
   const [uploadingId, setUploadingId] = useState<string | null>(null);
+  const [toast, setToast] = useState<UndoState>(null);
   const camRef = useRef<HTMLInputElement>(null);
   const camItemId = useRef<string | null>(null);
+  const barRef = useRef<HTMLDivElement>(null);
 
   async function load() {
     try {
@@ -34,9 +49,12 @@ export default function ListPage() {
   }
 
   useEffect(() => {
+    // ?loc=... — переход с экрана «Локации»
+    const param = new URLSearchParams(window.location.search).get("loc");
+    if (param) setLoc(param);
+    const pending = takePendingUndo();
+    if (pending) setToast(pending);
     load();
-    // Обновление при возврате на вкладку/экран — подтягивает фото и правки
-    // второго пользователя без перезагрузки страницы.
     const onVisible = () => {
       if (document.visibilityState === "visible") load();
     };
@@ -47,6 +65,18 @@ export default function ListPage() {
       document.removeEventListener("visibilitychange", onVisible);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Высота sticky-панели поиска — отступ для sticky-заголовков секций.
+  useEffect(() => {
+    const el = barRef.current;
+    if (!el) return;
+    const set = () =>
+      document.documentElement.style.setProperty("--barh", `${el.offsetHeight}px`);
+    set();
+    const ro = new ResizeObserver(set);
+    ro.observe(el);
+    return () => ro.disconnect();
   }, []);
 
   const locaties = useMemo(
@@ -61,7 +91,8 @@ export default function ListPage() {
   const filtered = useMemo(() => {
     let list = items ?? [];
     if (status !== "all") list = list.filter((i) => (status === "voorraad" ? i.status !== "verkocht" : i.status === "verkocht"));
-    if (loc) list = list.filter((i) => i.locatie === loc);
+    if (loc === "__none") list = list.filter((i) => !i.locatie);
+    else if (loc) list = list.filter((i) => i.locatie === loc);
     if (brand) list = list.filter((i) => i.merk === brand);
     if (q.trim()) {
       const s = q.trim().toLowerCase();
@@ -76,6 +107,18 @@ export default function ListPage() {
     return sorted;
   }, [items, q, status, loc, brand, sort]);
 
+  // Секции по локациям (сортировка внутри — какая выбрана выше).
+  const sections = useMemo(() => {
+    if (!grouped || loc) return null;
+    const map = new Map<string, ItemDto[]>();
+    for (const it of filtered) {
+      const key = it.locatie ?? "Без места";
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(it);
+    }
+    return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0], "ru"));
+  }, [filtered, grouped, loc]);
+
   const stats = useMemo(() => {
     const all = items ?? [];
     const inStock = all.filter((i) => i.status !== "verkocht");
@@ -87,8 +130,15 @@ export default function ListPage() {
     };
   }, [items]);
 
+  const closeToast = useCallback(() => setToast(null), []);
+
   async function toggleSold(it: ItemDto, price?: string) {
     const toSold = it.status !== "verkocht";
+    const snapshot = {
+      status: it.status,
+      verkoopprijs: it.verkoopprijs,
+      verkoopdatum: it.verkoopdatum,
+    };
     const body: Record<string, unknown> = { status: toSold ? "verkocht" : "voorraad" };
     if (toSold && price?.trim()) body.verkoopprijs = price;
     // оптимистичное обновление
@@ -97,6 +147,13 @@ export default function ListPage() {
     );
     try {
       await api(`/api/items/${it.id}`, { method: "PATCH", body: JSON.stringify(body) });
+      setToast({
+        label: toSold ? `Продано: ${it.merk}` : `Возвращено: ${it.merk}`,
+        undo: async () => {
+          await api(`/api/items/${it.id}`, { method: "PATCH", body: JSON.stringify(snapshot) });
+          load();
+        },
+      });
     } finally {
       load();
     }
@@ -126,20 +183,98 @@ export default function ListPage() {
     }
   }
 
+  function renderCard(it: ItemDto) {
+    const sold = it.status === "verkocht";
+    const sub = [it.soort, it.aantalDelen ? `${it.aantalDelen} ч.` : null, it.locatie]
+      .filter(Boolean)
+      .join(" · ");
+    return (
+      <SwipeCard
+        key={it.id}
+        rightLabel={sold ? "Вернуть" : "Продано"}
+        rightColor={sold ? "var(--cobalt)" : "var(--green)"}
+        onRight={() => toggleSold(it)}
+        onLeft={() => router.push(`/item/${it.id}`)}
+      >
+        <div className={`gcard ${sold ? "sold" : ""}`}>
+          <div className="gphoto">
+            {it.hoofdfoto ? (
+              <Link href={`/item/${it.id}`}>
+                {/* hoofdfoto из API — это thumb ~400px, не оригинал */}
+                <img src={it.hoofdfoto} alt={it.merk} loading="lazy" />
+              </Link>
+            ) : (
+              <>
+                <Link
+                  href={`/item/${it.id}`}
+                  className="gnophoto"
+                  aria-label={`${it.merk} — открыть карточку`}
+                />
+                {/* Кнопка живёт рядом со ссылкой, а не внутри неё: тап по ней
+                    не может открыть карточку даже без stopPropagation */}
+                <div className="gcamwrap">
+                  <button
+                    className="gcam"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      openCamera(it);
+                    }}
+                    disabled={uploadingId === it.id}
+                    aria-label="Сделать фото"
+                  >
+                    📷
+                  </button>
+                  <span className="gcam-label">
+                    {uploadingId === it.id ? "загружаю…" : "Фото"}
+                  </span>
+                </div>
+              </>
+            )}
+            <span
+              className={`gstatus ${
+                sold ? "verkocht" : it.status === "gereserveerd" ? "reserv" : "voorraad"
+              }`}
+            >
+              {sold ? "продано" : it.status === "gereserveerd" ? "резерв" : "в наличии"}
+            </span>
+          </div>
+          <Link href={`/item/${it.id}`} className="gbody">
+            <div className="gtitle">
+              {it.merk}
+              {it.model ? ` · ${it.model}` : ""}
+            </div>
+            <div className="gsub">{sub || " "}</div>
+          </Link>
+          <div className="gfoot">
+            <span className="gprice serif">{fmtPrice(listPrice(it))}</span>
+            {sold ? (
+              <button className="gbtn undo" onClick={() => toggleSold(it)}>
+                Вернуть
+              </button>
+            ) : (
+              <button
+                className="gbtn"
+                onClick={() => {
+                  setSellItem(it);
+                  setSellPrice("");
+                }}
+              >
+                Продано
+              </button>
+            )}
+          </div>
+        </div>
+      </SwipeCard>
+    );
+  }
+
   return (
     <>
       {offline && <div className="offline-note">Нет сети — показаны сохранённые данные</div>}
       <header className="app">
-        <div className="topnav">
-          <div>
-            <div className="eyebrow">Gina Decor</div>
-            <div className="serif" style={{ fontSize: 20, fontWeight: 700 }}>
-              Склад
-            </div>
-          </div>
-          <Link href="/settings" className="gear" aria-label="Настройки">
-            ⚙︎
-          </Link>
+        <div className="eyebrow">Gina Decor</div>
+        <div className="serif" style={{ fontSize: 20, fontWeight: 700 }}>
+          Склад
         </div>
         <div className="stats">
           <div className="stat">
@@ -157,7 +292,7 @@ export default function ListPage() {
         </div>
       </header>
 
-      <div className="bar">
+      <div className="bar" ref={barRef}>
         <input
           type="search"
           placeholder="Поиск: бренд, модель, тип, место…"
@@ -176,6 +311,13 @@ export default function ListPage() {
               {label}
             </button>
           ))}
+          <button
+            className={`chip ${grouped ? "on" : ""}`}
+            onClick={() => setGrouped((g) => !g)}
+            title="Группировать по локациям"
+          >
+            {grouped ? "По локациям ✓" : "По локациям"}
+          </button>
           <select
             className={`chip ${loc ? "on" : ""}`}
             style={{ width: "auto", padding: "7px 10px" }}
@@ -218,82 +360,17 @@ export default function ListPage() {
       <main className="grid">
         {items === null && <div className="empty gspan">Загружаю…</div>}
         {items !== null && filtered.length === 0 && <div className="empty gspan">Ничего не найдено</div>}
-        {filtered.map((it) => {
-          const sold = it.status === "verkocht";
-          const sub = [it.soort, it.aantalDelen ? `${it.aantalDelen} ч.` : null, it.locatie]
-            .filter(Boolean)
-            .join(" · ");
-          return (
-            <div className={`gcard ${sold ? "sold" : ""}`} key={it.id}>
-              <div className="gphoto">
-                {it.hoofdfoto ? (
-                  <Link href={`/item/${it.id}`}>
-                    {/* hoofdfoto из API — это thumb ~400px, не оригинал */}
-                    <img src={it.hoofdfoto} alt={it.merk} loading="lazy" />
-                  </Link>
-                ) : (
-                  <>
-                    <Link
-                      href={`/item/${it.id}`}
-                      className="gnophoto"
-                      aria-label={`${it.merk} — открыть карточку`}
-                    />
-                    {/* Кнопка живёт рядом со ссылкой, а не внутри неё: тап по ней
-                        не может открыть карточку даже без stopPropagation */}
-                    <div className="gcamwrap">
-                      <button
-                        className="gcam"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          openCamera(it);
-                        }}
-                        disabled={uploadingId === it.id}
-                        aria-label="Сделать фото"
-                      >
-                        📷
-                      </button>
-                      <span className="gcam-label">
-                        {uploadingId === it.id ? "загружаю…" : "Фото"}
-                      </span>
-                    </div>
-                  </>
-                )}
-                <span
-                  className={`gstatus ${
-                    sold ? "verkocht" : it.status === "gereserveerd" ? "reserv" : "voorraad"
-                  }`}
-                >
-                  {sold ? "продано" : it.status === "gereserveerd" ? "резерв" : "в наличии"}
-                </span>
-              </div>
-              <Link href={`/item/${it.id}`} className="gbody">
-                <div className="gtitle">
-                  {it.merk}
-                  {it.model ? ` · ${it.model}` : ""}
+        {sections
+          ? sections.map(([name, group]) => (
+              <div key={name} className="gsection-wrap gspan">
+                <div className="gsection">
+                  <span>{name}</span>
+                  <span className="gsection-n">{group.length}</span>
                 </div>
-                <div className="gsub">{sub || " "}</div>
-              </Link>
-              <div className="gfoot">
-                <span className="gprice serif">{fmtPrice(listPrice(it))}</span>
-                {sold ? (
-                  <button className="gbtn undo" onClick={() => toggleSold(it)}>
-                    Вернуть
-                  </button>
-                ) : (
-                  <button
-                    className="gbtn"
-                    onClick={() => {
-                      setSellItem(it);
-                      setSellPrice("");
-                    }}
-                  >
-                    Продано
-                  </button>
-                )}
+                <div className="grid-inner">{group.map(renderCard)}</div>
               </div>
-            </div>
-          );
-        })}
+            ))
+          : filtered.map(renderCard)}
       </main>
 
       <input
@@ -305,9 +382,8 @@ export default function ListPage() {
         onChange={(e) => onCameraFile(e.target.files)}
       />
 
-      <Link href="/new" className="fab" aria-label="Добавить товар">
-        +
-      </Link>
+      <UndoToast toast={toast} onDone={closeToast} />
+      <BottomNav />
 
       {sellItem && (
         <div className="modal-back" onClick={() => setSellItem(null)}>

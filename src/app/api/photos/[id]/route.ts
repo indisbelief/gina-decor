@@ -3,13 +3,15 @@ import { del } from "@vercel/blob";
 import { db } from "@/db";
 import { photos } from "@/db/schema";
 import { and, eq, ne } from "drizzle-orm";
+import { getActor, logEvents } from "@/lib/events";
 
 type Params = { params: Promise<{ id: string }> };
 
-export async function DELETE(_req: NextRequest, { params }: Params) {
+export async function DELETE(req: NextRequest, { params }: Params) {
   const { id } = await params;
   const [photo] = await db.delete(photos).where(eq(photos.id, id)).returning();
   if (!photo) return NextResponse.json({ error: "not found" }, { status: 404 });
+  await logEvents(photo.itemId, getActor(req), [{ type: "photo_deleted" }]);
 
   try {
     await del([photo.url, ...(photo.thumbUrl ? [photo.thumbUrl] : [])]);

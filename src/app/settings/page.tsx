@@ -3,13 +3,32 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { api, type ItemDto } from "@/lib/client";
+import { BottomNav } from "@/components/BottomNav";
+
+function readUserCookie(): string {
+  const m = document.cookie.match(/(?:^|;\s*)gd_user=([^;]*)/);
+  try {
+    return m ? decodeURIComponent(m[1]) : "";
+  } catch {
+    return "";
+  }
+}
 
 export default function SettingsPage() {
   const [items, setItems] = useState<ItemDto[]>([]);
+  const [name, setName] = useState("");
+  const [nameSaved, setNameSaved] = useState(false);
 
   useEffect(() => {
     api<ItemDto[]>("/api/items").then(setItems).catch(() => {});
+    setName(readUserCookie());
   }, []);
+
+  function saveName() {
+    document.cookie = `gd_user=${encodeURIComponent(name.trim().slice(0, 60))}; path=/; max-age=31536000; secure; samesite=lax`;
+    setNameSaved(true);
+    setTimeout(() => setNameSaved(false), 1500);
+  }
 
   const locaties = useMemo(() => {
     const counts = new Map<string, number>();
@@ -22,14 +41,35 @@ export default function SettingsPage() {
   return (
     <>
       <header className="app">
-        <Link href="/" className="back">
-          ← Склад
-        </Link>
-        <div className="serif" style={{ fontSize: 20, fontWeight: 700, marginTop: 6 }}>
+        <div className="eyebrow">Gina Decor</div>
+        <div className="serif" style={{ fontSize: 20, fontWeight: 700 }}>
           Настройки
         </div>
       </header>
-      <div className="detail">
+      <div className="detail" style={{ paddingBottom: 110 }}>
+        <div className="settings-item">
+          <div style={{ fontWeight: 600, marginBottom: 6 }}>Ваше имя</div>
+          <p style={{ fontSize: 13, color: "var(--mute)", marginBottom: 10 }}>
+            Подписывает ваши действия в истории изменений — видно, кто отметил продажу.
+          </p>
+          <div style={{ display: "flex", gap: 8 }}>
+            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Имя" />
+            <button className="btn primary" style={{ width: "auto", padding: "10px 16px" }} onClick={saveName}>
+              {nameSaved ? "✓" : "Сохранить"}
+            </button>
+          </div>
+        </div>
+
+        <div className="settings-item">
+          <div style={{ fontWeight: 600, marginBottom: 6 }}>QR-этикетки</div>
+          <p style={{ fontSize: 13, color: "var(--mute)", marginBottom: 12 }}>
+            Лист с QR-кодами для коробок и полок: навёл камеру — открылась карточка.
+          </p>
+          <Link href="/labels" className="btn primary">
+            Печать QR
+          </Link>
+        </div>
+
         <div className="settings-item">
           <div style={{ fontWeight: 600, marginBottom: 6 }}>Выгрузка</div>
           <p style={{ fontSize: 13, color: "var(--mute)", marginBottom: 12 }}>
@@ -72,6 +112,7 @@ export default function SettingsPage() {
           </p>
         </div>
       </div>
+      <BottomNav />
     </>
   );
 }

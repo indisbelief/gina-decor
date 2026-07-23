@@ -1,9 +1,22 @@
 "use client";
 
-import { use, useEffect, useRef, useState } from "react";
+import { use, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { api, compressImage, listPrice, fmtPrice, type ItemDto, type PhotoDto } from "@/lib/client";
+import {
+  api,
+  compressImage,
+  fmtPrice,
+  humanizeEvent,
+  listPrice,
+  relDate,
+  setPendingUndo,
+  type EventDto,
+  type ItemDto,
+  type PhotoDto,
+} from "@/lib/client";
+import { UndoToast, type UndoState } from "@/components/UndoToast";
+import { Lightbox } from "@/components/Lightbox";
 
 type FullItem = ItemDto & { photos: PhotoDto[] };
 
@@ -26,17 +39,31 @@ export default function ItemPage({ params }: { params: Promise<{ id: string }> }
   const [uploading, setUploading] = useState(false);
   const [sellOpen, setSellOpen] = useState(false);
   const [sellPrice, setSellPrice] = useState("");
+  const [toast, setToast] = useState<UndoState>(null);
+  const [histOpen, setHistOpen] = useState(false);
+  const [events, setEvents] = useState<EventDto[] | null>(null);
+  const [lbIndex, setLbIndex] = useState<number | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const savedTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   async function load() {
     setItem(await api<FullItem>(`/api/items/${id}`));
+    if (histOpen) loadEvents();
+  }
+
+  async function loadEvents() {
+    setEvents(await api<EventDto[]>(`/api/items/${id}/events`).catch(() => []));
   }
 
   useEffect(() => {
     load().catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
+
+  useEffect(() => {
+    if (histOpen && events === null) loadEvents();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [histOpen]);
 
   function flashSaved() {
     setSaved(true);
@@ -50,7 +77,9 @@ export default function ItemPage({ params }: { params: Promise<{ id: string }> }
       body: JSON.stringify(body),
     });
     setItem((prev) => (prev ? { ...prev, ...updated } : prev));
+    if (events !== null) loadEvents();
     flashSaved();
+    return updated;
   }
 
   async function saveField(key: string, value: string) {
@@ -63,6 +92,36 @@ export default function ItemPage({ params }: { params: Promise<{ id: string }> }
       alert((e as Error).message);
       load();
     }
+  }
+
+  function snapshotStatus(it: ItemDto) {
+    return { status: it.status, verkoopprijs: it.verkoopprijs, verkoopdatum: it.verkoopdatum };
+  }
+
+  async function markSold(price: string) {
+    if (!item) return;
+    const snap = snapshotStatus(item);
+    const body: Record<string, unknown> = { status: "verkocht" };
+    if (price.trim()) body.verkoopprijs = price;
+    await patch(body);
+    setToast({
+      label: "Продано",
+      undo: async () => {
+        await patch(snap);
+      },
+    });
+  }
+
+  async function markReturned() {
+    if (!item) return;
+    const snap = snapshotStatus(item);
+    await patch({ status: "voorraad" });
+    setToast({
+      label: "Возвращено в наличие",
+      undo: async () => {
+        await patch(snap);
+      },
+    });
   }
 
   async function onFiles(files: FileList | null) {
@@ -87,19 +146,29 @@ export default function ItemPage({ params }: { params: Promise<{ id: string }> }
   async function deletePhoto(p: PhotoDto) {
     if (!confirm("Удалить фото?")) return;
     await api(`/api/photos/${p.id}`, { method: "DELETE" });
+    setLbIndex(null);
     load();
   }
 
   async function makeMain(p: PhotoDto) {
     await api(`/api/photos/${p.id}`, { method: "PATCH" });
+    flashSaved();
     load();
   }
 
   async function archive() {
-    if (!confirm("Убрать товар в архив? Он исчезнет из списка, но данные сохранятся.")) return;
-    await patch({ archived: true });
+    // Применяем сразу; отмена — через undo-тост уже на списке.
+    await api(`/api/items/${id}`, { method: "PATCH", body: JSON.stringify({ archived: true }) });
+    setPendingUndo({
+      label: `В архиве: ${item?.merk ?? ""}`,
+      undo: async () => {
+        await api(`/api/items/${id}`, { method: "PATCH", body: JSON.stringify({ archived: false }) });
+      },
+    });
     router.push("/");
   }
+
+  const closeToast = useCallback(() => setToast(null), []);
 
   if (!item) return <div className="empty">Загружаю…</div>;
 
@@ -123,12 +192,14 @@ export default function ItemPage({ params }: { params: Promise<{ id: string }> }
 
       <div className="detail">
         <div className="gallery">
-          {item.photos.map((p) => (
+          {item.photos.map((p, i) => (
             <div key={p.id} className={`ph ${p.isHoofdfoto ? "main" : ""}`}>
-              <img src={p.thumbUrl ?? p.url} alt="" loading="lazy" onClick={() => makeMain(p)} />
-              <button className="del" onClick={() => deletePhoto(p)} aria-label="Удалить фото">
-                ✕
-              </button>
+              <img
+                src={p.thumbUrl ?? p.url}
+                alt=""
+                loading="lazy"
+                onClick={() => setLbIndex(i)}
+              />
             </div>
           ))}
           <button className="addph" onClick={() => fileRef.current?.click()} disabled={uploading}>
@@ -144,9 +215,9 @@ export default function ItemPage({ params }: { params: Promise<{ id: string }> }
             onChange={(e) => onFiles(e.target.files)}
           />
         </div>
-        {item.photos.length > 1 && (
+        {item.photos.length > 0 && (
           <div style={{ fontSize: 12, color: "var(--mute)", marginBottom: 12 }}>
-            Тап по фото — сделать его главным (обведено золотым).
+            Тап по фото — на весь экран. Главное обведено золотым.
           </div>
         )}
 
@@ -179,6 +250,8 @@ export default function ItemPage({ params }: { params: Promise<{ id: string }> }
                 if (e.target.value === "verkocht") {
                   setSellOpen(true);
                   setSellPrice("");
+                } else if (e.target.value === "voorraad" && isSold) {
+                  markReturned();
                 } else {
                   patch({ status: e.target.value });
                 }
@@ -232,7 +305,7 @@ export default function ItemPage({ params }: { params: Promise<{ id: string }> }
               Продано
             </button>
           ) : (
-            <button className="btn ghost" onClick={() => patch({ status: "voorraad" })}>
+            <button className="btn ghost" onClick={markReturned}>
               Вернуть в наличие
             </button>
           )}
@@ -240,9 +313,42 @@ export default function ItemPage({ params }: { params: Promise<{ id: string }> }
             Архивировать
           </button>
         </div>
+
+        <div className="hist">
+          <button className="hist-toggle" onClick={() => setHistOpen((v) => !v)}>
+            История {histOpen ? "▴" : "▾"}
+          </button>
+          {histOpen && (
+            <div className="hist-list">
+              {events === null && <div className="empty">Загружаю…</div>}
+              {events?.length === 0 && <div className="empty">Записей пока нет</div>}
+              {events?.map((e) => (
+                <div key={e.id} className="hist-row">
+                  <div className="hist-text">{humanizeEvent(e)}</div>
+                  <div className="hist-meta">
+                    {relDate(e.createdAt)}
+                    {e.actor ? ` · ${e.actor}` : ""}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
       {saved && <div className="saved-note">Сохранено ✓</div>}
+      <UndoToast toast={toast} onDone={closeToast} />
+
+      {lbIndex !== null && item.photos[lbIndex] && (
+        <Lightbox
+          photos={item.photos}
+          index={lbIndex}
+          setIndex={setLbIndex}
+          onClose={() => setLbIndex(null)}
+          onMakeMain={makeMain}
+          onDelete={deletePhoto}
+        />
+      )}
 
       {sellOpen && (
         <div className="modal-back" onClick={() => setSellOpen(false)}>
@@ -263,9 +369,7 @@ export default function ItemPage({ params }: { params: Promise<{ id: string }> }
               <button
                 className="btn green"
                 onClick={async () => {
-                  const body: Record<string, unknown> = { status: "verkocht" };
-                  if (sellPrice.trim()) body.verkoopprijs = sellPrice;
-                  await patch(body);
+                  await markSold(sellPrice);
                   setSellOpen(false);
                 }}
               >

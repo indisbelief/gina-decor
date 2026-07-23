@@ -15,6 +15,13 @@
       "when": 1784814882823,
       "tag": "0001_flimsy_leech",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1784819219977,
+      "tag": "0002_natural_vision",
+      "breakpoints": true
     }
   ]
 }

@@ -4,6 +4,7 @@ import { useState } from "react";
 
 export default function LoginPage() {
   const [password, setPassword] = useState("");
+  const [name, setName] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -14,7 +15,7 @@ export default function LoginPage() {
     const res = await fetch("/api/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ password }),
+      body: JSON.stringify({ password, name }),
     });
     if (res.ok) {
       window.location.href = "/";
@@ -36,6 +37,15 @@ export default function LoginPage() {
           placeholder="Пароль"
           autoFocus
         />
+        <div style={{ marginTop: 10 }}>
+          <input
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Ваше имя (для истории изменений)"
+            autoComplete="name"
+          />
+        </div>
         {error && <div className="err">{error}</div>}
         <div style={{ marginTop: 14 }}>
           <button className="btn primary" disabled={busy || !password}>

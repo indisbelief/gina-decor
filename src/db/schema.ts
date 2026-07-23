@@ -8,6 +8,8 @@ import {
   date,
   timestamp,
   boolean,
+  jsonb,
+  index,
 } from "drizzle-orm/pg-core";
 
 export const staatEnum = pgEnum("staat", ["nieuw", "als_nieuw", "gebruikt"]);
@@ -47,6 +49,22 @@ export const photos = pgTable("photos", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+export const itemEvents = pgTable(
+  "item_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    itemId: uuid("item_id")
+      .notNull()
+      .references(() => items.id, { onDelete: "cascade" }),
+    type: text("type").notNull(),
+    actor: text("actor"),
+    details: jsonb("details"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("item_events_item_idx").on(t.itemId), index("item_events_created_idx").on(t.createdAt)],
+);
+
 export type Item = typeof items.$inferSelect;
 export type NewItem = typeof items.$inferInsert;
 export type Photo = typeof photos.$inferSelect;
+export type ItemEvent = typeof itemEvents.$inferSelect;
