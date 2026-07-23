@@ -111,8 +111,8 @@ export async function GET() {
         const name = encoder.encode(path);
         const crc = crc32(data);
         entries.push({ name, crc, size: data.length, offset });
+        // имя файла уже входит в буфер localHeader
         await push(localHeader(name, crc, data.length));
-        await push(name);
         await push(data);
       };
 
