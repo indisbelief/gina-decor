@@ -9,9 +9,11 @@ export async function GET() {
   const rows = await db
     .select({
       item: items,
+      // items.id написан текстом: интерполяция ${items.id} внутри подзапроса
+      // рендерится как неквалифицированное "id" и захватывается алиасом p.
       hoofdfoto: sql<string | null>`(
         select url from photos p
-        where p.item_id = ${items.id}
+        where p.item_id = "items"."id"
         order by p.is_hoofdfoto desc, p.volgorde asc, p.created_at asc
         limit 1
       )`,

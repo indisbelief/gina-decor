@@ -32,6 +32,17 @@ export default function ListPage() {
 
   useEffect(() => {
     load();
+    // Обновление при возврате на вкладку/экран — подтягивает фото и правки
+    // второго пользователя без перезагрузки страницы.
+    const onVisible = () => {
+      if (document.visibilityState === "visible") load();
+    };
+    window.addEventListener("focus", onVisible);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.removeEventListener("focus", onVisible);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
