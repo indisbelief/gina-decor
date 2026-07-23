@@ -232,17 +232,31 @@ export default function ListPage() {
                     <img src={it.hoofdfoto} alt={it.merk} loading="lazy" />
                   </Link>
                 ) : (
-                  <button
-                    className="gnophoto"
-                    onClick={() => openCamera(it)}
-                    disabled={uploadingId === it.id}
-                    aria-label="Сделать фото"
-                  >
-                    <span className="cam">📷</span>
-                    <span className="nophoto-badge">
-                      {uploadingId === it.id ? "загружаю…" : "нет фото"}
-                    </span>
-                  </button>
+                  <>
+                    <Link
+                      href={`/item/${it.id}`}
+                      className="gnophoto"
+                      aria-label={`${it.merk} — открыть карточку`}
+                    />
+                    {/* Кнопка живёт рядом со ссылкой, а не внутри неё: тап по ней
+                        не может открыть карточку даже без stopPropagation */}
+                    <div className="gcamwrap">
+                      <button
+                        className="gcam"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openCamera(it);
+                        }}
+                        disabled={uploadingId === it.id}
+                        aria-label="Сделать фото"
+                      >
+                        📷
+                      </button>
+                      <span className="gcam-label">
+                        {uploadingId === it.id ? "загружаю…" : "Фото"}
+                      </span>
+                    </div>
+                  </>
                 )}
                 <span
                   className={`gstatus ${

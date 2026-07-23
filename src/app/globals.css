@@ -188,26 +188,41 @@ header.app {
 .gnophoto {
   position: absolute;
   inset: 0;
+  display: block;
+}
+
+.gcamwrap {
+  position: absolute;
+  inset: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 7px;
-  color: var(--mute);
-  width: 100%;
+  gap: 6px;
+  pointer-events: none;
 }
 
-.gnophoto .cam {
-  font-size: 34px;
-  opacity: 0.55;
+.gcam {
+  pointer-events: auto;
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  background: var(--cobalt);
+  color: #fff;
+  font-size: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 3px 10px rgba(27, 58, 107, 0.35);
 }
 
-.nophoto-badge {
-  font-size: 11px;
-  background: #fff;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  padding: 2px 9px;
+.gcam:disabled {
+  opacity: 0.6;
+}
+
+.gcam-label {
+  font-size: 11.5px;
+  font-weight: 600;
   color: var(--mute);
 }
 
