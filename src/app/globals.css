@@ -893,6 +893,22 @@ header.app {
   margin-top: 2px;
 }
 
+.rec-choose {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--mute);
+  margin-bottom: 8px;
+  min-height: 28px;
+  cursor: pointer;
+}
+
+.rec-choose input {
+  width: 20px;
+  height: 20px;
+}
+
 .rec-error {
   margin-top: 8px;
   background: #fdecea;

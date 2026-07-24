@@ -20,6 +20,12 @@ export default function ReconcilePage() {
   const [error, setError] = useState("");
   const [cardError, setCardError] = useState<{ handle: string; message: string } | null>(null);
   const [justLinked, setJustLinked] = useState("");
+  const [shopSel, setShopSel] = useState<Set<string>>(new Set());
+  const [batch, setBatch] = useState<{ done: number; total: number } | null>(null);
+  const [batchResult, setBatchResult] = useState<{
+    added: number;
+    failed: { product: ShopProduct; message: string; createdId?: string }[];
+  } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   async function onFile(files: FileList | null) {
@@ -139,36 +145,119 @@ export default function ReconcilePage() {
     });
   }
 
-  async function addToBase(product: ShopProduct) {
-    setBusyHandle(product.handle);
+  /**
+   * Создание товара из позиции магазина: товар → фото → связка.
+   * Падение фото не считается ошибкой (импортируются позже из карточки);
+   * при падении связки возвращаем createdId, чтобы retry не создал дубль.
+   */
+  async function runOne(
+    product: ShopProduct,
+    existingId?: string,
+  ): Promise<{ ok: true; id: string; sku?: string } | { ok: false; message: string; createdId?: string }> {
+    let createdId = existingId;
+    let sku: string | undefined;
     try {
-      const merk = product.vendor || product.title.split(" ").slice(0, 2).join(" ");
-      const created = await api<ItemDto>("/api/items", {
-        method: "POST",
-        body: JSON.stringify({ merk, model: product.title, vraagprijs: product.price ?? "" }),
-      });
-      if (product.images.length) {
-        await api(`/api/items/${created.id}/photos/import`, {
+      if (!createdId) {
+        const merk = product.vendor || product.title.split(" ").slice(0, 2).join(" ");
+        const created = await api<ItemDto>("/api/items", {
+          method: "POST",
+          body: JSON.stringify({ merk, model: product.title, vraagprijs: product.price ?? "" }),
+        });
+        createdId = created.id;
+        sku = created.sku;
+      }
+    } catch (e) {
+      return { ok: false, message: (e as Error).message };
+    }
+    if (product.images.length) {
+      try {
+        await api(`/api/items/${createdId}/photos/import`, {
           method: "POST",
           body: JSON.stringify({ urls: product.images }),
         });
+      } catch {
+        // товар уже создан; фото можно дотянуть из карточки позже
       }
-      await api("/api/shopify-link", {
-        method: "POST",
-        body: JSON.stringify({ itemId: created.id, ...product }),
-      });
-      setLinkedNow((prev) => new Map(prev).set(product.handle, created.id));
-      setItems((prev) => [
-        { ...created, shopifyHandle: product.handle, shopifySync: { ...product, syncedAt: "" }, hoofdfoto: product.images[0] ?? null },
-        ...prev,
-      ]);
-      setJustLinked(`Добавлено: ${created.sku} ✓`);
-      setTimeout(() => setJustLinked(""), 2500);
-    } catch (e) {
-      setCardError({ handle: product.handle, message: (e as Error).message });
-    } finally {
-      setBusyHandle(null);
     }
+    try {
+      const updated = await api<ItemDto>("/api/shopify-link", {
+        method: "POST",
+        body: JSON.stringify({ itemId: createdId, ...product }),
+      });
+      if (updated.shopifyHandle !== product.handle) throw new Error("связка не сохранилась");
+    } catch (e) {
+      return { ok: false, message: `создан без связки: ${(e as Error).message}`, createdId };
+    }
+    return { ok: true, id: createdId, sku };
+  }
+
+  async function addToBase(product: ShopProduct) {
+    setBusyHandle(product.handle);
+    setCardError(null);
+    const r = await runOne(product);
+    if (r.ok) {
+      setLinkedNow((prev) => new Map(prev).set(product.handle, r.id));
+      api<ItemDto[]>("/api/items").then(setItems).catch(() => {});
+      setJustLinked(`Добавлено${r.sku ? `: ${r.sku}` : ""} ✓`);
+      setTimeout(() => setJustLinked(""), 2500);
+    } else {
+      setCardError({ handle: product.handle, message: r.message });
+    }
+    setBusyHandle(null);
+  }
+
+  async function runBatch(
+    productsToAdd: ShopProduct[],
+    existingIds?: Map<string, string>,
+  ) {
+    if (!productsToAdd.length) return;
+    if (!confirm(`Создать ${productsToAdd.length} товаров с фото из магазина?`)) return;
+    setBatch({ done: 0, total: productsToAdd.length });
+    setBatchResult(null);
+    setCardError(null);
+    let added = 0;
+    let done = 0;
+    const failed: { product: ShopProduct; message: string; createdId?: string }[] = [];
+    // пачками по 3: фото каждого товара качаются отдельным запросом,
+    // один общий POST не влез бы в лимиты serverless
+    for (let i = 0; i < productsToAdd.length; i += 3) {
+      const chunk = productsToAdd.slice(i, i + 3);
+      const results = await Promise.all(chunk.map((p) => runOne(p, existingIds?.get(p.handle))));
+      results.forEach((r, j) => {
+        done++;
+        if (r.ok) {
+          added++;
+          setLinkedNow((prev) => new Map(prev).set(chunk[j].handle, r.id));
+        } else {
+          failed.push({ product: chunk[j], message: r.message, createdId: r.createdId });
+        }
+      });
+      setBatch({ done, total: productsToAdd.length });
+    }
+    const fresh = await api<ItemDto[]>("/api/items").catch(() => null);
+    if (fresh) setItems(fresh);
+    setBatch(null);
+    setBatchResult({ added, failed });
+    setShopSel(new Set());
+    setJustLinked(`Добавлено ${added}${failed.length ? ` · Ошибки ${failed.length}` : ""}`);
+    setTimeout(() => setJustLinked(""), 3500);
+  }
+
+  function retryFailed() {
+    if (!batchResult) return;
+    const ids = new Map(
+      batchResult.failed.filter((f) => f.createdId).map((f) => [f.product.handle, f.createdId!]),
+    );
+    runBatch(batchResult.failed.map((f) => f.product), ids);
+  }
+
+  function toggleShopSel(handle: string) {
+    setShopSel((prev) => {
+      const next = new Set(prev);
+      if (next.has(handle)) next.delete(handle);
+      else next.add(handle);
+      return next;
+    });
   }
 
   function shopCard(p: ShopProduct) {
@@ -312,9 +401,67 @@ export default function ReconcilePage() {
 
             {tab === "shopOnly" && (
               <>
-                {groups.shopOnly.length === 0 && <div className="empty">Всё из магазина есть в базе</div>}
+                {groups.shopOnly.length === 0 && !batchResult && (
+                  <div className="empty">Всё из магазина есть в базе</div>
+                )}
+
+                {groups.shopOnly.length > 0 && (
+                  <div className="stack" style={{ marginTop: 0, marginBottom: 12 }}>
+                    <button
+                      className="btn primary"
+                      disabled={!!batch}
+                      onClick={() => runBatch(groups.shopOnly)}
+                    >
+                      {batch
+                        ? `Добавляю… ${batch.done} из ${batch.total}`
+                        : `Добавить все (${groups.shopOnly.length})`}
+                    </button>
+                    {shopSel.size > 0 && !batch && (
+                      <button
+                        className="btn ghost"
+                        onClick={() => runBatch(groups.shopOnly.filter((p) => shopSel.has(p.handle)))}
+                      >
+                        Добавить выбранные ({shopSel.size})
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {batchResult && (
+                  <div className="imp-card">
+                    <div style={{ fontWeight: 600 }}>
+                      Добавлено {batchResult.added} · Ошибки {batchResult.failed.length}
+                    </div>
+                    {batchResult.failed.map((f) => (
+                      <div className="rec-error" key={f.product.handle}>
+                        <b>{f.product.title}</b>
+                        <br />⚠ {f.message}
+                      </div>
+                    ))}
+                    <div className="imp-actions">
+                      {batchResult.failed.length > 0 && (
+                        <button className="btn primary" disabled={!!batch} onClick={retryFailed}>
+                          Повторить неудачные ({batchResult.failed.length})
+                        </button>
+                      )}
+                      <button className="btn ghost" onClick={() => setBatchResult(null)}>
+                        Закрыть
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 {groups.shopOnly.map((p) => (
                   <div className="imp-card" key={p.handle}>
+                    <label className="rec-choose">
+                      <input
+                        type="checkbox"
+                        checked={shopSel.has(p.handle)}
+                        onChange={() => toggleShopSel(p.handle)}
+                        disabled={!!batch}
+                      />
+                      <span>выбрать</span>
+                    </label>
                     <div className="rec-pair single">{shopCard(p)}</div>
                     {cardError?.handle === p.handle && (
                       <div className="rec-error">⚠ {cardError.message}</div>
@@ -322,7 +469,7 @@ export default function ReconcilePage() {
                     <div className="imp-actions">
                       <button
                         className="btn primary"
-                        disabled={busyHandle === p.handle}
+                        disabled={busyHandle === p.handle || !!batch}
                         onClick={() => addToBase(p)}
                       >
                         {busyHandle === p.handle ? "Создаю с фото…" : "Добавить в базу"}
