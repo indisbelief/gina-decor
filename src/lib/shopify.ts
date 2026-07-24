@@ -213,6 +213,42 @@ export function matchProduct(product: ShopProduct, dbItems: ItemDto[]): Match[] 
   );
 }
 
+/**
+ * Мягкая проверка на дубль перед созданием товара из магазина:
+ * нормализованное merk+model против названия позиции + цена в пределах ±15%.
+ * Это не скоринг-матчер: он ловит «тот же товар, уже заведённый вручную
+ * или прошлым импортом», где бренд может совпадать с именем магазина.
+ */
+export function findDuplicates(product: ShopProduct, dbItems: ItemDto[]): ItemDto[] {
+  const titleFull = normalize(`${product.vendor} ${product.title}`);
+  const titleOnly = normalize(product.title);
+  const ratio = (a: string, b: string) =>
+    a.includes(b) || b.includes(a) ? Math.min(a.length, b.length) / Math.max(a.length, b.length) : 0;
+  return dbItems
+    .map((i) => {
+      if (i.archivedAt) return null;
+      const nameN = normalize(`${i.merk} ${i.model ?? ""}`).trim();
+      const modelN = normalize(i.model ?? "");
+      // сила совпадения — доля покрытия названия, чтобы точный дубль
+      // не вытеснялся слабыми частичными совпадениями
+      const strength = Math.max(
+        nameN.length >= 4 ? Math.max(ratio(titleFull, nameN), ratio(titleOnly, nameN)) : 0,
+        modelN.length >= 4 ? ratio(titleOnly, modelN) : 0,
+      );
+      if (strength === 0) return null;
+      const ip = parseFloat(i.vraagprijs ?? i.inkoopprijs ?? "");
+      if (product.price != null && Number.isFinite(ip) && ip > 0) {
+        if (Math.abs(product.price - ip) / Math.max(product.price, ip) > 0.15) return null;
+      }
+      // без цен для сравнения — совпадения названия достаточно
+      return { item: i, strength };
+    })
+    .filter((x): x is { item: ItemDto; strength: number } => x !== null)
+    .sort((a, b) => b.strength - a.strength)
+    .slice(0, 2)
+    .map((x) => x.item);
+}
+
 const TYPE_HINTS: [RegExp, string[]][] = [
   [/\bvase|vaas\b/, ["vase"]],
   [/glass|goblet|roemer|glazen/, ["glass", "goblet", "crystal", "coupe"]],

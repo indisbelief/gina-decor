@@ -909,6 +909,21 @@ header.app {
   height: 20px;
 }
 
+.dup-note {
+  margin-top: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--gold);
+}
+
+.dup-link-hint {
+  text-align: center;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--cobalt);
+  padding: 6px 0 2px;
+}
+
 .rec-error {
   margin-top: 8px;
   background: #fdecea;

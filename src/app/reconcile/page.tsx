@@ -3,7 +3,13 @@
 import { useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { api, fmtPrice, type ItemDto } from "@/lib/client";
-import { isConfident, matchProduct, parseShopifyProductsCsv, type ShopProduct } from "@/lib/shopify";
+import {
+  findDuplicates,
+  isConfident,
+  matchProduct,
+  parseShopifyProductsCsv,
+  type ShopProduct,
+} from "@/lib/shopify";
 
 type Tab = "matches" | "shopOnly" | "baseOnly";
 
@@ -25,7 +31,10 @@ export default function ReconcilePage() {
   const [batchResult, setBatchResult] = useState<{
     added: number;
     failed: { product: ShopProduct; message: string; createdId?: string }[];
+    needsDecision: number;
   } | null>(null);
+  const [dupPrompts, setDupPrompts] = useState<Map<string, ItemDto[]>>(new Map());
+  const [skippedHandles, setSkippedHandles] = useState<Set<string>>(new Set());
   const fileRef = useRef<HTMLInputElement>(null);
 
   async function onFile(files: FileList | null) {
@@ -191,7 +200,23 @@ export default function ReconcilePage() {
     return { ok: true, id: createdId, sku };
   }
 
-  async function addToBase(product: ShopProduct) {
+  function clearDupPrompt(handle: string) {
+    setDupPrompts((prev) => {
+      const next = new Map(prev);
+      next.delete(handle);
+      return next;
+    });
+  }
+
+  async function addToBase(product: ShopProduct, opts?: { force?: boolean }) {
+    if (!opts?.force) {
+      const dups = findDuplicates(product, items);
+      if (dups.length) {
+        setDupPrompts((prev) => new Map(prev).set(product.handle, dups));
+        return;
+      }
+    }
+    clearDupPrompt(product.handle);
     setBusyHandle(product.handle);
     setCardError(null);
     const r = await runOne(product);
@@ -212,7 +237,28 @@ export default function ReconcilePage() {
   ) {
     if (!productsToAdd.length) return;
     if (!confirm(`Создать ${productsToAdd.length} товаров с фото из магазина?`)) return;
-    setBatch({ done: 0, total: productsToAdd.length });
+    // мягкая проверка на дубли: похожие не создаём молча, а откладываем
+    // в «Требуют решения»; retry (existingIds) проверку не проходит повторно
+    let toCreate = productsToAdd;
+    let deferred = 0;
+    if (!existingIds) {
+      const withDups: { p: ShopProduct; dups: ItemDto[] }[] = [];
+      toCreate = [];
+      for (const p of productsToAdd) {
+        const dups = findDuplicates(p, items);
+        if (dups.length) withDups.push({ p, dups });
+        else toCreate.push(p);
+      }
+      deferred = withDups.length;
+      if (deferred) {
+        setDupPrompts((prev) => {
+          const next = new Map(prev);
+          for (const { p, dups } of withDups) next.set(p.handle, dups);
+          return next;
+        });
+      }
+    }
+    setBatch({ done: 0, total: toCreate.length });
     setBatchResult(null);
     setCardError(null);
     let added = 0;
@@ -220,8 +266,8 @@ export default function ReconcilePage() {
     const failed: { product: ShopProduct; message: string; createdId?: string }[] = [];
     // пачками по 3: фото каждого товара качаются отдельным запросом,
     // один общий POST не влез бы в лимиты serverless
-    for (let i = 0; i < productsToAdd.length; i += 3) {
-      const chunk = productsToAdd.slice(i, i + 3);
+    for (let i = 0; i < toCreate.length; i += 3) {
+      const chunk = toCreate.slice(i, i + 3);
       const results = await Promise.all(chunk.map((p) => runOne(p, existingIds?.get(p.handle))));
       results.forEach((r, j) => {
         done++;
@@ -237,9 +283,13 @@ export default function ReconcilePage() {
     const fresh = await api<ItemDto[]>("/api/items").catch(() => null);
     if (fresh) setItems(fresh);
     setBatch(null);
-    setBatchResult({ added, failed });
+    setBatchResult({ added, failed, needsDecision: deferred });
     setShopSel(new Set());
-    setJustLinked(`Добавлено ${added}${failed.length ? ` · Ошибки ${failed.length}` : ""}`);
+    setJustLinked(
+      `Добавлено ${added}` +
+        (failed.length ? ` · Ошибки ${failed.length}` : "") +
+        (deferred ? ` · Требуют решения ${deferred}` : ""),
+    );
     setTimeout(() => setJustLinked(""), 3500);
   }
 
@@ -431,7 +481,15 @@ export default function ReconcilePage() {
                   <div className="imp-card">
                     <div style={{ fontWeight: 600 }}>
                       Добавлено {batchResult.added} · Ошибки {batchResult.failed.length}
+                      {batchResult.needsDecision > 0 &&
+                        ` · Требуют решения ${batchResult.needsDecision}`}
                     </div>
+                    {batchResult.needsDecision > 0 && (
+                      <p style={{ fontSize: 12.5, color: "var(--mute)", marginTop: 4 }}>
+                        Возможные дубли не созданы — решите по карточкам ниже: связать,
+                        создать или пропустить.
+                      </p>
+                    )}
                     {batchResult.failed.map((f) => (
                       <div className="rec-error" key={f.product.handle}>
                         <b>{f.product.title}</b>
@@ -451,32 +509,80 @@ export default function ReconcilePage() {
                   </div>
                 )}
 
-                {groups.shopOnly.map((p) => (
-                  <div className="imp-card" key={p.handle}>
-                    <label className="rec-choose">
-                      <input
-                        type="checkbox"
-                        checked={shopSel.has(p.handle)}
-                        onChange={() => toggleShopSel(p.handle)}
-                        disabled={!!batch}
-                      />
-                      <span>выбрать</span>
-                    </label>
-                    <div className="rec-pair single">{shopCard(p)}</div>
-                    {cardError?.handle === p.handle && (
-                      <div className="rec-error">⚠ {cardError.message}</div>
-                    )}
-                    <div className="imp-actions">
-                      <button
-                        className="btn primary"
-                        disabled={busyHandle === p.handle || !!batch}
-                        onClick={() => addToBase(p)}
-                      >
-                        {busyHandle === p.handle ? "Создаю с фото…" : "Добавить в базу"}
-                      </button>
-                    </div>
-                  </div>
-                ))}
+                {groups.shopOnly
+                  .filter((p) => !skippedHandles.has(p.handle))
+                  .sort((a, b) => Number(dupPrompts.has(b.handle)) - Number(dupPrompts.has(a.handle)))
+                  .map((p) => {
+                    const dups = dupPrompts.get(p.handle);
+                    return (
+                      <div className="imp-card" key={p.handle}>
+                        <label className="rec-choose">
+                          <input
+                            type="checkbox"
+                            checked={shopSel.has(p.handle)}
+                            onChange={() => toggleShopSel(p.handle)}
+                            disabled={!!batch}
+                          />
+                          <span>выбрать</span>
+                        </label>
+                        <div className="rec-pair single">{shopCard(p)}</div>
+                        {cardError?.handle === p.handle && (
+                          <div className="rec-error">⚠ {cardError.message}</div>
+                        )}
+                        {dups ? (
+                          <>
+                            <div className="dup-note">
+                              Возможный дубль — похожий товар уже есть в базе:
+                            </div>
+                            <div className="imp-cands">
+                              {dups.map((d) => (
+                                <button
+                                  key={d.id}
+                                  className="imp-cand"
+                                  disabled={busyHandle === p.handle || !!batch}
+                                  onClick={async () => {
+                                    await link(p, d);
+                                    clearDupPrompt(p.handle);
+                                  }}
+                                >
+                                  {dbCard(d)}
+                                  <div className="dup-link-hint">Это он — связать</div>
+                                </button>
+                              ))}
+                            </div>
+                            <div className="imp-actions">
+                              <button
+                                className="btn primary"
+                                disabled={busyHandle === p.handle || !!batch}
+                                onClick={() => addToBase(p, { force: true })}
+                              >
+                                Всё равно создать
+                              </button>
+                              <button
+                                className="btn ghost"
+                                onClick={() => {
+                                  clearDupPrompt(p.handle);
+                                  setSkippedHandles((prev) => new Set(prev).add(p.handle));
+                                }}
+                              >
+                                Пропустить
+                              </button>
+                            </div>
+                          </>
+                        ) : (
+                          <div className="imp-actions">
+                            <button
+                              className="btn primary"
+                              disabled={busyHandle === p.handle || !!batch}
+                              onClick={() => addToBase(p)}
+                            >
+                              {busyHandle === p.handle ? "Создаю с фото…" : "Добавить в базу"}
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
               </>
             )}
 
