@@ -33,6 +33,9 @@ export const items = pgTable("items", {
   leverancier: text("leverancier"),
   status: statusEnum("status").notNull().default("voorraad"),
   notities: text("notities"),
+  shopifyHandle: text("shopify_handle"),
+  // снапшот каталога магазина: {title, price, status, images, syncedAt}
+  shopifySync: jsonb("shopify_sync"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   archivedAt: timestamp("archived_at", { withTimezone: true }),
@@ -45,6 +48,8 @@ export const photos = pgTable("photos", {
     .references(() => items.id, { onDelete: "cascade" }),
   url: text("url").notNull(),
   thumbUrl: text("thumb_url"),
+  // откуда фото пришло при импорте (Shopify Image Src) — защита от дублей
+  sourceUrl: text("source_url"),
   volgorde: integer("volgorde").notNull().default(0),
   isHoofdfoto: boolean("is_hoofdfoto").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

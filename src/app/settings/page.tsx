@@ -161,9 +161,14 @@ export default function SettingsPage() {
             Загрузите CSV-экспорт заказов — приложение найдёт совпадения со складом
             и отметит продажи после вашего подтверждения.
           </p>
-          <Link href="/import" className="btn primary">
-            Импорт продаж
-          </Link>
+          <div className="stack" style={{ marginTop: 0 }}>
+            <Link href="/import" className="btn primary">
+              Импорт продаж
+            </Link>
+            <Link href="/reconcile" className="btn ghost">
+              Сверка с магазином
+            </Link>
+          </div>
         </div>
 
         <div className="settings-item">

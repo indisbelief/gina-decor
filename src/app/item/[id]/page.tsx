@@ -20,6 +20,46 @@ import { Lightbox } from "@/components/Lightbox";
 
 type FullItem = ItemDto & { photos: PhotoDto[] };
 
+function ShopifyBlock({ item, onImported }: { item: FullItem; onImported: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const sync = item.shopifySync!;
+  const localSources = new Set(item.photos.map((p) => p.sourceUrl).filter(Boolean));
+  const newImages = (sync.images ?? []).filter((u) => !localSources.has(u));
+  const statusRu: Record<string, string> = { active: "опубликован", draft: "черновик", archived: "в архиве" };
+
+  async function importPhotos() {
+    setBusy(true);
+    try {
+      const res = await api<{ created: number }>(`/api/items/${item.id}/photos/import`, {
+        method: "POST",
+        body: JSON.stringify({ urls: newImages }),
+      });
+      if (!res.created) alert("Новых фото не нашлось");
+      onImported();
+    } catch (e) {
+      alert((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="settings-item" style={{ marginTop: 18 }}>
+      <div style={{ fontWeight: 600, marginBottom: 4 }}>Shopify</div>
+      <div style={{ fontSize: 13.5 }}>{sync.title}</div>
+      <div style={{ fontSize: 12.5, color: "var(--mute)", marginTop: 2 }}>
+        {fmtPrice(sync.price != null ? String(sync.price) : null)} в магазине ·{" "}
+        {statusRu[sync.status] ?? sync.status}
+      </div>
+      {newImages.length > 0 && (
+        <button className="btn ghost" style={{ marginTop: 10 }} disabled={busy} onClick={importPhotos}>
+          {busy ? "Импортирую…" : `Импортировать фото из Shopify (${newImages.length})`}
+        </button>
+      )}
+    </div>
+  );
+}
+
 const FIELDS: { key: keyof ItemDto; label: string; type?: string }[] = [
   { key: "merk", label: "Бренд *" },
   { key: "model", label: "Модель / коллекция" },
@@ -313,6 +353,10 @@ export default function ItemPage({ params }: { params: Promise<{ id: string }> }
             Архивировать
           </button>
         </div>
+
+        {item.shopifyHandle && item.shopifySync && (
+          <ShopifyBlock item={item} onImported={load} />
+        )}
 
         <div className="hist">
           <button className="hist-toggle" onClick={() => setHistOpen((v) => !v)}>

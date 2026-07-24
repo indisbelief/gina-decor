@@ -146,6 +146,73 @@ export function parseShopifyCsv(text: string): { lines: OrderLine[]; skipped: nu
   return { lines, skipped };
 }
 
+export type ShopProduct = {
+  handle: string;
+  title: string;
+  vendor: string;
+  price: number | null;
+  status: string; // active | draft | archived
+  images: string[];
+};
+
+/** Products → Export: варианты и строки-картинки схлопываются по Handle. */
+export function parseShopifyProductsCsv(text: string): ShopProduct[] {
+  const rows = parseCsv(text.replace(/^﻿/, ""));
+  if (!rows.length) return [];
+  const header = rows[0].map((h) => h.trim().toLowerCase());
+  const col = (name: string) => header.indexOf(name.toLowerCase());
+  const cHandle = col("Handle");
+  const cTitle = col("Title");
+  const cPrice = col("Variant Price");
+  const cImage = col("Image Src");
+  const cStatus = col("Status");
+  const cVendor = col("Vendor");
+  if (cHandle < 0 || cTitle < 0) {
+    throw new Error("Не похоже на экспорт товаров Shopify: нет колонок Handle / Title");
+  }
+
+  const map = new Map<string, ShopProduct>();
+  for (const r of rows.slice(1)) {
+    const handle = (r[cHandle] ?? "").trim();
+    if (!handle) continue;
+    let p = map.get(handle);
+    if (!p) {
+      p = { handle, title: "", vendor: "", price: null, status: "active", images: [] };
+      map.set(handle, p);
+    }
+    const title = (r[cTitle] ?? "").trim();
+    if (title && !p.title) {
+      p.title = title;
+      p.vendor = cVendor >= 0 ? (r[cVendor] ?? "").trim() : "";
+      const st = cStatus >= 0 ? (r[cStatus] ?? "").trim().toLowerCase() : "";
+      if (st) p.status = st;
+    }
+    if (cPrice >= 0 && p.price == null) {
+      const pr = parseFloat((r[cPrice] ?? "").replace(",", "."));
+      if (Number.isFinite(pr)) p.price = pr;
+    }
+    if (cImage >= 0) {
+      const img = (r[cImage] ?? "").trim();
+      if (img && !p.images.includes(img)) p.images.push(img);
+    }
+  }
+  return Array.from(map.values()).filter((p) => p.title);
+}
+
+/** Матчинг товара магазина против базы — тем же движком, что импорт продаж. */
+export function matchProduct(product: ShopProduct, dbItems: ItemDto[]): Match[] {
+  return matchLine(
+    {
+      order: product.handle,
+      name: `${product.vendor} ${product.title}`,
+      price: product.price,
+      qty: 1,
+      date: "",
+    },
+    dbItems,
+  );
+}
+
 const TYPE_HINTS: [RegExp, string[]][] = [
   [/\bvase|vaas\b/, ["vase"]],
   [/glass|goblet|roemer|glazen/, ["glass", "goblet", "crystal", "coupe"]],

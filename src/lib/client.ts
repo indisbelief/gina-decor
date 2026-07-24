@@ -18,7 +18,17 @@ export type ItemDto = {
   createdAt: string;
   updatedAt: string;
   archivedAt: string | null;
+  shopifyHandle: string | null;
+  shopifySync: ShopifySync | null;
   hoofdfoto?: string | null;
+};
+
+export type ShopifySync = {
+  title: string;
+  price: number | null;
+  status: string;
+  images: string[];
+  syncedAt: string;
 };
 
 export type PhotoDto = {
@@ -26,6 +36,7 @@ export type PhotoDto = {
   itemId: string;
   url: string;
   thumbUrl: string | null;
+  sourceUrl: string | null;
   volgorde: number;
   isHoofdfoto: boolean;
 };
@@ -77,6 +88,8 @@ export function humanizeEvent(e: EventDto): string {
       const to = d.to ? fmtPrice(String(d.to)) : "—";
       return `${label}: ${d.from ? fmtPrice(String(d.from)) : "—"} → ${to}`;
     }
+    case "shopify_linked":
+      return `связан с товаром Shopify (${d.handle ?? "?"})`;
     case "sold_shopify":
       return `продан (импорт Shopify, заказ ${d.order ?? "?"}${d.price ? " за " + fmtPrice(String(d.price)) : ""})`;
     case "photo_added":
