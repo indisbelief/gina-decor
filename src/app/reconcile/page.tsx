@@ -18,6 +18,8 @@ export default function ReconcilePage() {
   const [busyHandle, setBusyHandle] = useState<string | null>(null);
   const [linkedOpen, setLinkedOpen] = useState(false);
   const [error, setError] = useState("");
+  const [cardError, setCardError] = useState<{ handle: string; message: string } | null>(null);
+  const [justLinked, setJustLinked] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
 
   async function onFile(files: FileList | null) {
@@ -99,11 +101,17 @@ export default function ReconcilePage() {
 
   async function link(product: ShopProduct, item: ItemDto) {
     setBusyHandle(product.handle);
+    setCardError(null);
     try {
-      await api("/api/shopify-link", {
+      // Проверяем ответ сервера: связка считается созданной только если
+      // handle реально записан — «немых» успехов не бывает.
+      const updated = await api<ItemDto>("/api/shopify-link", {
         method: "POST",
         body: JSON.stringify({ itemId: item.id, ...product }),
       });
+      if (updated.shopifyHandle !== product.handle) {
+        throw new Error("Сервер не сохранил связку — попробуйте ещё раз");
+      }
       setLinkedNow((prev) => new Map(prev).set(product.handle, item.id));
       setItems((prev) =>
         prev.map((i) =>
@@ -112,8 +120,10 @@ export default function ReconcilePage() {
             : i,
         ),
       );
+      setJustLinked(`Связано: ${item.sku} ✓`);
+      setTimeout(() => setJustLinked(""), 2500);
     } catch (e) {
-      alert((e as Error).message);
+      setCardError({ handle: product.handle, message: (e as Error).message });
     } finally {
       setBusyHandle(null);
     }
@@ -152,8 +162,10 @@ export default function ReconcilePage() {
         { ...created, shopifyHandle: product.handle, shopifySync: { ...product, syncedAt: "" }, hoofdfoto: product.images[0] ?? null },
         ...prev,
       ]);
+      setJustLinked(`Добавлено: ${created.sku} ✓`);
+      setTimeout(() => setJustLinked(""), 2500);
     } catch (e) {
-      alert((e as Error).message);
+      setCardError({ handle: product.handle, message: (e as Error).message });
     } finally {
       setBusyHandle(null);
     }
@@ -219,6 +231,7 @@ export default function ReconcilePage() {
         )}
         <input ref={fileRef} type="file" accept=".csv,text/csv" hidden onChange={(e) => onFile(e.target.files)} />
 
+        {justLinked && <div className="saved-note">{justLinked}</div>}
         {products && (
           <>
             {groups.linked.length > 0 && (
@@ -277,6 +290,9 @@ export default function ReconcilePage() {
                       совпадение {Math.round(match[0].score * 100)}%
                       {!isConfident(match) && match.length > 1 ? ` · ещё ${match.length - 1} канд.` : ""}
                     </div>
+                    {cardError?.handle === product.handle && (
+                      <div className="rec-error">⚠ {cardError.message}</div>
+                    )}
                     <div className="imp-actions">
                       <button
                         className="btn green"
@@ -300,6 +316,9 @@ export default function ReconcilePage() {
                 {groups.shopOnly.map((p) => (
                   <div className="imp-card" key={p.handle}>
                     <div className="rec-pair single">{shopCard(p)}</div>
+                    {cardError?.handle === p.handle && (
+                      <div className="rec-error">⚠ {cardError.message}</div>
+                    )}
                     <div className="imp-actions">
                       <button
                         className="btn primary"

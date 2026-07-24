@@ -893,6 +893,16 @@ header.app {
   margin-top: 2px;
 }
 
+.rec-error {
+  margin-top: 8px;
+  background: #fdecea;
+  border: 1px solid #f2c4be;
+  color: var(--red);
+  border-radius: 10px;
+  padding: 9px 12px;
+  font-size: 13px;
+}
+
 /* ---------- QR-этикетки ---------- */
 
 .label-rows {

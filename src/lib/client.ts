@@ -163,7 +163,9 @@ export async function api<T>(url: string, init?: RequestInit): Promise<T> {
   }
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
-    throw new Error((data as { error?: string }).error || `Ошибка ${res.status}`);
+    throw new Error(
+      (data as { error?: string }).error || `Ошибка ${res.status} (${url.split("?")[0]})`,
+    );
   }
   return res.json();
 }
