@@ -61,6 +61,7 @@ export default function SettingsPage() {
   const [name, setName] = useState("");
   const [nameSaved, setNameSaved] = useState(false);
   const [backup, setBackup] = useState<BackupStatus | null>(null);
+  const [archivedCount, setArchivedCount] = useState(0);
   const [expMode, setExpMode] = useState<ExportMode>("verkocht");
   const [presetKey, setPresetKey] = useState("cur");
   const [customFrom, setCustomFrom] = useState("");
@@ -69,6 +70,9 @@ export default function SettingsPage() {
   useEffect(() => {
     api<ItemDto[]>("/api/items").then(setItems).catch(() => {});
     api<BackupStatus>("/api/backup/status").then(setBackup).catch(() => {});
+    api<ItemDto[]>("/api/items?archived=1")
+      .then((a) => setArchivedCount(a.length))
+      .catch(() => {});
     setName(readUserCookie());
   }, []);
 
@@ -307,6 +311,18 @@ export default function SettingsPage() {
             <p style={{ fontSize: 12.5, color: "var(--gold)", marginTop: 10 }}>
               ⚠ Полный бэкап больше 200 МБ — скачивание займёт время, не закрывайте вкладку.
             </p>
+          )}
+        </div>
+
+        <div className="settings-item">
+          <div style={{ fontWeight: 600, marginBottom: 6 }}>Архив ({archivedCount})</div>
+          <p style={{ fontSize: 13, color: "var(--mute)", marginBottom: archivedCount ? 12 : 0 }}>
+            Убранные со склада товары. В счётчиках, суммах и экспорте не участвуют.
+          </p>
+          {archivedCount > 0 && (
+            <Link href="/archive" className="btn ghost">
+              Открыть архив
+            </Link>
           )}
         </div>
 

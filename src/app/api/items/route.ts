@@ -3,10 +3,12 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { items } from "@/db/schema";
-import { desc, isNull, sql } from "drizzle-orm";
+import { desc, isNotNull, isNull, sql } from "drizzle-orm";
 import { getActor, logEvents } from "@/lib/events";
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  // ?archived=1 — экран архива; по умолчанию архив скрыт везде
+  const archived = req.nextUrl.searchParams.get("archived") === "1";
   const rows = await db
     .select({
       item: items,
@@ -20,8 +22,8 @@ export async function GET() {
       )`,
     })
     .from(items)
-    .where(isNull(items.archivedAt))
-    .orderBy(desc(items.createdAt));
+    .where(archived ? isNotNull(items.archivedAt) : isNull(items.archivedAt))
+    .orderBy(archived ? desc(items.archivedAt) : desc(items.createdAt));
 
   return NextResponse.json(rows.map((r) => ({ ...r.item, hoofdfoto: r.hoofdfoto })));
 }

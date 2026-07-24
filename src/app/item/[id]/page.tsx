@@ -210,15 +210,37 @@ export default function ItemPage({ params }: { params: Promise<{ id: string }> }
 
   const closeToast = useCallback(() => setToast(null), []);
 
+  async function restore() {
+    await patch({ archived: false });
+    setToast({
+      label: "Восстановлено из архива",
+      undo: async () => {
+        await patch({ archived: true });
+      },
+    });
+  }
+
+  async function deleteForever() {
+    if (!confirm("Удалить навсегда? Фото и вся история товара будут стёрты.")) return;
+    if (!confirm("Точно удалить? Это действие необратимо.")) return;
+    try {
+      await api(`/api/items/${id}`, { method: "DELETE" });
+      router.push("/archive");
+    } catch (e) {
+      alert((e as Error).message);
+    }
+  }
+
   if (!item) return <div className="empty">Загружаю…</div>;
 
   const isSold = item.status === "verkocht";
+  const isArchived = !!item.archivedAt;
 
   return (
     <>
       <header className="app">
-        <Link href="/" className="back">
-          ← Склад
+        <Link href={isArchived ? "/archive" : "/"} className="back">
+          {isArchived ? "← Архив" : "← Склад"}
         </Link>
         <div className="serif" style={{ fontSize: 20, fontWeight: 700, marginTop: 6 }}>
           {item.merk}
@@ -231,6 +253,15 @@ export default function ItemPage({ params }: { params: Promise<{ id: string }> }
       </header>
 
       <div className="detail">
+        {isArchived && (
+          <div className="arch-banner">
+            В архиве
+            {item.archivedAt
+              ? ` с ${new Date(item.archivedAt).toLocaleDateString("ru-RU")}`
+              : ""}{" "}
+            — поля доступны только для просмотра.
+          </div>
+        )}
         <div className="gallery">
           {item.photos.map((p, i) => (
             <div key={p.id} className={`ph ${p.isHoofdfoto ? "main" : ""}`}>
@@ -242,10 +273,12 @@ export default function ItemPage({ params }: { params: Promise<{ id: string }> }
               />
             </div>
           ))}
-          <button className="addph" onClick={() => fileRef.current?.click()} disabled={uploading}>
-            <span style={{ fontSize: 26 }}>📷</span>
-            {uploading ? "Загружаю…" : "Добавить фото"}
-          </button>
+          {!isArchived && (
+            <button className="addph" onClick={() => fileRef.current?.click()} disabled={uploading}>
+              <span style={{ fontSize: 26 }}>📷</span>
+              {uploading ? "Загружаю…" : "Добавить фото"}
+            </button>
+          )}
           <input
             ref={fileRef}
             type="file"
@@ -269,13 +302,18 @@ export default function ItemPage({ params }: { params: Promise<{ id: string }> }
                 type={f.type ?? "text"}
                 inputMode={f.type === "number" ? "decimal" : undefined}
                 defaultValue={String(item[f.key] ?? "")}
+                disabled={isArchived}
                 onBlur={(e) => saveField(f.key, e.target.value)}
               />
             </div>
           ))}
           <div className="field">
             <label>Состояние</label>
-            <select defaultValue={item.staat ?? ""} onChange={(e) => saveField("staat", e.target.value)}>
+            <select
+              defaultValue={item.staat ?? ""}
+              disabled={isArchived}
+              onChange={(e) => saveField("staat", e.target.value)}
+            >
               <option value="">—</option>
               <option value="nieuw">Новый</option>
               <option value="als_nieuw">Как новый</option>
@@ -286,6 +324,7 @@ export default function ItemPage({ params }: { params: Promise<{ id: string }> }
             <label>Статус</label>
             <select
               value={item.status}
+              disabled={isArchived}
               onChange={(e) => {
                 if (e.target.value === "verkocht") {
                   setSellOpen(true);
@@ -329,29 +368,38 @@ export default function ItemPage({ params }: { params: Promise<{ id: string }> }
           <textarea
             rows={3}
             defaultValue={item.notities ?? ""}
+            disabled={isArchived}
             onBlur={(e) => saveField("notities", e.target.value)}
           />
         </div>
 
         <div className="stack">
-          {!isSold ? (
-            <button
-              className="btn green"
-              onClick={() => {
-                setSellOpen(true);
-                setSellPrice("");
-              }}
-            >
-              Продано
+          {isArchived ? (
+            <button className="btn primary" onClick={restore}>
+              Восстановить
             </button>
           ) : (
-            <button className="btn ghost" onClick={markReturned}>
-              Вернуть в наличие
-            </button>
+            <>
+              {!isSold ? (
+                <button
+                  className="btn green"
+                  onClick={() => {
+                    setSellOpen(true);
+                    setSellPrice("");
+                  }}
+                >
+                  Продано
+                </button>
+              ) : (
+                <button className="btn ghost" onClick={markReturned}>
+                  Вернуть в наличие
+                </button>
+              )}
+              <button className="btn danger" onClick={archive}>
+                Архивировать
+              </button>
+            </>
           )}
-          <button className="btn danger" onClick={archive}>
-            Архивировать
-          </button>
         </div>
 
         {item.shopifyHandle && item.shopifySync && (
@@ -378,6 +426,14 @@ export default function ItemPage({ params }: { params: Promise<{ id: string }> }
             </div>
           )}
         </div>
+
+        {isArchived && (
+          <div className="stack" style={{ marginTop: 26 }}>
+            <button className="btn danger" onClick={deleteForever}>
+              Удалить навсегда
+            </button>
+          </div>
+        )}
       </div>
 
       {saved && <div className="saved-note">Сохранено ✓</div>}

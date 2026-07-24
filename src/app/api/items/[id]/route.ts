@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { del } from "@vercel/blob";
 import { db } from "@/db";
 import { items, photos, type Item } from "@/db/schema";
 import { asc, desc, eq } from "drizzle-orm";
@@ -113,4 +114,27 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   if (!updated) return NextResponse.json({ error: "not found" }, { status: 404 });
   await logEvents(id, getActor(req), diffEvents(before, updated, body));
   return NextResponse.json(updated);
+}
+
+/** Удаление навсегда: только из архива. Стирает фото из Blob; записи фото,
+ *  событий и shopify-связок уходят каскадом вместе с товаром. */
+export async function DELETE(_req: NextRequest, { params }: Params) {
+  const { id } = await params;
+  const [item] = await db.select().from(items).where(eq(items.id, id));
+  if (!item) return NextResponse.json({ error: "not found" }, { status: 404 });
+  if (!item.archivedAt) {
+    return NextResponse.json({ error: "Сначала архивируйте товар" }, { status: 400 });
+  }
+
+  const itemPhotos = await db.select().from(photos).where(eq(photos.itemId, id));
+  const urls = itemPhotos.flatMap((p) => [p.url, ...(p.thumbUrl ? [p.thumbUrl] : [])]);
+  if (urls.length) {
+    try {
+      await del(urls);
+    } catch {
+      // файл мог быть удалён вручную — запись в БД важнее
+    }
+  }
+  await db.delete(items).where(eq(items.id, id));
+  return NextResponse.json({ ok: true });
 }
