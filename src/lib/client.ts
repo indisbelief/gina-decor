@@ -20,7 +20,23 @@ export type ItemDto = {
   archivedAt: string | null;
   shopifyHandle: string | null;
   shopifySync: ShopifySync | null;
+  kanaal: string | null;
   hoofdfoto?: string | null;
+};
+
+export type ShopifySaleDto = {
+  id: string;
+  orderId: string;
+  orderName: string;
+  lineItemId: string;
+  title: string;
+  price: string | null;
+  quantity: number;
+  handle: string | null;
+  orderDate: string | null;
+  itemId: string | null;
+  resolvedAt: string | null;
+  createdAt: string;
 };
 
 export type ShopifySync = {
@@ -90,6 +106,8 @@ export function humanizeEvent(e: EventDto): string {
     }
     case "shopify_linked":
       return `связан с товаром Shopify (${d.handle ?? "?"})`;
+    case "sold_auto":
+      return `продан автоматически (Shopify, заказ ${d.order ?? "?"}${d.price ? " за " + fmtPrice(String(d.price)) : ""})`;
     case "sold_shopify":
       return `продан (импорт Shopify, заказ ${d.order ?? "?"}${d.price ? " за " + fmtPrice(String(d.price)) : ""})`;
     case "photo_added":

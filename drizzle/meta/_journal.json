@@ -36,6 +36,13 @@
       "when": 1784883692615,
       "tag": "0004_fantastic_sunspot",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1786282855525,
+      "tag": "0005_remarkable_lady_bullseye",
+      "breakpoints": true
     }
   ]
 }

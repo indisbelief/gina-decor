@@ -36,6 +36,8 @@ export const items = pgTable("items", {
   shopifyHandle: text("shopify_handle"),
   // снапшот каталога магазина: {title, price, status, images, syncedAt}
   shopifySync: jsonb("shopify_sync"),
+  // канал продажи: null (вручную) | 'shopify' (вебхук/привязка)
+  kanaal: text("kanaal"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   archivedAt: timestamp("archived_at", { withTimezone: true }),
@@ -83,6 +85,34 @@ export const shopifyImports = pgTable(
   },
   (t) => [uniqueIndex("shopify_imports_order_line_idx").on(t.orderName, t.lineitemName)],
 );
+
+/** Позиции заказов из вебхука orders/paid. Уникальность (order_id, line_item_id)
+ *  защищает от повторной доставки вебхука. item_id null + resolved_at null = непривязанная. */
+export const shopifySales = pgTable(
+  "shopify_sales",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orderId: text("order_id").notNull(),
+    orderName: text("order_name").notNull(),
+    lineItemId: text("line_item_id").notNull(),
+    title: text("title").notNull(),
+    price: numeric("price", { precision: 10, scale: 2 }),
+    quantity: integer("quantity").notNull().default(1),
+    handle: text("handle"),
+    orderDate: date("order_date"),
+    itemId: uuid("item_id").references(() => items.id, { onDelete: "set null" }),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("shopify_sales_order_line_idx").on(t.orderId, t.lineItemId)],
+);
+
+/** Ключ-значение для настроек интеграций; env-переменные имеют приоритет. */
+export const appConfig = pgTable("app_config", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
 
 export type Item = typeof items.$inferSelect;
 export type NewItem = typeof items.$inferInsert;

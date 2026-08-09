@@ -62,6 +62,13 @@ export default function SettingsPage() {
   const [nameSaved, setNameSaved] = useState(false);
   const [backup, setBackup] = useState<BackupStatus | null>(null);
   const [archivedCount, setArchivedCount] = useState(0);
+  const [unmatchedCount, setUnmatchedCount] = useState(0);
+  const [shopCfg, setShopCfg] = useState<{ domain: string | null; tokenSet: boolean; secretSet: boolean } | null>(null);
+  const [whStatus, setWhStatus] = useState<{ configured: boolean; connected: boolean; error?: string } | null>(null);
+  const [cfgForm, setCfgForm] = useState({ domain: "", token: "", secret: "" });
+  const [cfgBusy, setCfgBusy] = useState(false);
+  const [whBusy, setWhBusy] = useState(false);
+  const [shopMsg, setShopMsg] = useState("");
   const [expMode, setExpMode] = useState<ExportMode>("verkocht");
   const [presetKey, setPresetKey] = useState("cur");
   const [customFrom, setCustomFrom] = useState("");
@@ -73,8 +80,59 @@ export default function SettingsPage() {
     api<ItemDto[]>("/api/items?archived=1")
       .then((a) => setArchivedCount(a.length))
       .catch(() => {});
+    api<{ length: number }[]>("/api/shopify-sales")
+      .then((s) => setUnmatchedCount(s.length))
+      .catch(() => {});
+    api<{ domain: string | null; tokenSet: boolean; secretSet: boolean }>("/api/shopify/config")
+      .then((c) => {
+        setShopCfg(c);
+        if (c.domain) setCfgForm((f) => ({ ...f, domain: c.domain! }));
+        if (c.domain && c.tokenSet && c.secretSet) refreshWebhook();
+      })
+      .catch(() => {});
     setName(readUserCookie());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  function refreshWebhook() {
+    setWhBusy(true);
+    api<{ configured: boolean; connected: boolean; error?: string }>("/api/shopify/webhook")
+      .then(setWhStatus)
+      .catch((e) => setWhStatus({ configured: true, connected: false, error: (e as Error).message }))
+      .finally(() => setWhBusy(false));
+  }
+
+  async function saveShopifyConfig() {
+    setCfgBusy(true);
+    setShopMsg("");
+    try {
+      const c = await api<{ domain: string | null; tokenSet: boolean; secretSet: boolean }>(
+        "/api/shopify/config",
+        { method: "POST", body: JSON.stringify(cfgForm) },
+      );
+      setShopCfg(c);
+      setCfgForm((f) => ({ ...f, token: "", secret: "" }));
+      setShopMsg("Сохранено ✓");
+      if (c.domain && c.tokenSet && c.secretSet) refreshWebhook();
+    } catch (e) {
+      setShopMsg(`⚠ ${(e as Error).message}`);
+    } finally {
+      setCfgBusy(false);
+    }
+  }
+
+  async function connectWebhook() {
+    setWhBusy(true);
+    setShopMsg("");
+    try {
+      await api("/api/shopify/webhook", { method: "POST", body: "{}" });
+      setShopMsg("Вебхук подключён ✓");
+      refreshWebhook();
+    } catch (e) {
+      setShopMsg(`⚠ ${(e as Error).message}`);
+      setWhBusy(false);
+    }
+  }
 
   function saveName() {
     document.cookie = `gd_user=${encodeURIComponent(name.trim().slice(0, 60))}; path=/; max-age=31536000; secure; samesite=lax`;
@@ -157,6 +215,83 @@ export default function SettingsPage() {
               {nameSaved ? "✓" : "Сохранить"}
             </button>
           </div>
+        </div>
+
+        <div className="settings-item">
+          <div style={{ fontWeight: 600, marginBottom: 6 }}>
+            Shopify: автопродажи{" "}
+            {whStatus && (
+              <span
+                className={`badge ${whStatus.connected ? "" : "gereserveerd"}`}
+                style={whStatus.connected ? { background: "#e3f4e9", color: "var(--green)" } : undefined}
+              >
+                {whStatus.connected ? "вебхук подключён ✓" : "не подключён"}
+              </span>
+            )}
+          </div>
+          {unmatchedCount > 0 && (
+            <Link href="/unmatched" className="btn ghost" style={{ marginBottom: 12, color: "var(--gold)", borderColor: "#ecd9a8" }}>
+              ⚠ {unmatchedCount} непривязанных продаж — разобрать
+            </Link>
+          )}
+          <p style={{ fontSize: 13, color: "var(--mute)", marginBottom: 10 }}>
+            Оплаченные заказы будут сами отмечать связанные товары проданными.
+            Нужно custom-приложение магазина: Shopify Admin → Settings → Apps and
+            sales channels → Develop apps → Create app, права <b>read_orders, read_products,
+            read_webhooks + write_webhooks</b>. Оттуда возьмите Admin API access token
+            (shpat_…) и API secret key.
+          </p>
+          <div className="field">
+            <label>Домен магазина</label>
+            <input
+              placeholder="my-shop.myshopify.com"
+              value={cfgForm.domain}
+              onChange={(e) => setCfgForm({ ...cfgForm, domain: e.target.value })}
+            />
+          </div>
+          <div className="field">
+            <label>Admin API token {shopCfg?.tokenSet ? "(сохранён ✓ — ввод заменит)" : ""}</label>
+            <input
+              type="password"
+              placeholder="shpat_…"
+              value={cfgForm.token}
+              onChange={(e) => setCfgForm({ ...cfgForm, token: e.target.value })}
+            />
+          </div>
+          <div className="field">
+            <label>API secret key {shopCfg?.secretSet ? "(сохранён ✓ — ввод заменит)" : ""}</label>
+            <input
+              type="password"
+              placeholder="для проверки подписи вебхука"
+              value={cfgForm.secret}
+              onChange={(e) => setCfgForm({ ...cfgForm, secret: e.target.value })}
+            />
+          </div>
+          <div className="stack" style={{ marginTop: 4 }}>
+            <button className="btn primary" disabled={cfgBusy} onClick={saveShopifyConfig}>
+              {cfgBusy ? "Сохраняю…" : "Сохранить настройки"}
+            </button>
+            {shopCfg?.domain && shopCfg.tokenSet && shopCfg.secretSet && (
+              <>
+                {!whStatus?.connected && (
+                  <button className="btn green" disabled={whBusy} onClick={connectWebhook}>
+                    {whBusy ? "…" : "Подключить вебхук"}
+                  </button>
+                )}
+                <button className="btn ghost" disabled={whBusy} onClick={refreshWebhook}>
+                  {whBusy ? "Проверяю…" : "Проверить подключение"}
+                </button>
+              </>
+            )}
+          </div>
+          {shopMsg && (
+            <p style={{ fontSize: 13, marginTop: 8, color: shopMsg.startsWith("⚠") ? "var(--red)" : "var(--green)" }}>
+              {shopMsg}
+            </p>
+          )}
+          {whStatus?.error && (
+            <p style={{ fontSize: 12.5, marginTop: 6, color: "var(--red)" }}>⚠ {whStatus.error}</p>
+          )}
         </div>
 
         <div className="settings-item">

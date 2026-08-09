@@ -10,7 +10,9 @@ export async function middleware(req: NextRequest) {
     pathname === "/sw.js" ||
     pathname.startsWith("/icons/") ||
     // крон-роуты проверяют CRON_SECRET сами
-    pathname.startsWith("/api/cron/")
+    pathname.startsWith("/api/cron/") ||
+    // вебхуки Shopify проверяют HMAC-подпись сами
+    pathname.startsWith("/api/webhooks/")
   ) {
     return NextResponse.next();
   }
