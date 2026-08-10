@@ -94,6 +94,8 @@ export default function SettingsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const cfgComplete = !!(shopCfg?.domain && shopCfg.clientIdSet && shopCfg.clientSecretSet);
+
   function refreshWebhook() {
     setWhBusy(true);
     api<{ configured: boolean; connected: boolean; error?: string }>("/api/shopify/webhook")
@@ -236,11 +238,11 @@ export default function SettingsPage() {
           )}
           <p style={{ fontSize: 13, color: "var(--mute)", marginBottom: 10 }}>
             Оплаченные заказы будут сами отмечать связанные товары проданными.
-            Нужно custom-приложение: Shopify Admin → Settings → Apps and sales
-            channels → Develop apps → Create app, права <b>read_orders, read_products,
-            read_webhooks + write_webhooks</b>. Возьмите оттуда <b>Client ID</b> и{" "}
-            <b>Client Secret</b> — access token приложение получит само (client
-            credentials grant) и будет обновлять по истечении. Этим же секретом
+            Приложение создаётся в <b>Dev Dashboard</b> (dev.shopify.com) → Create app →
+            скоупы <b>read_orders</b> (+ read_all_orders, если доступен) и{" "}
+            <b>read_products</b> → Create version. Ключи — в Settings приложения:{" "}
+            <b>Client ID</b> и <b>Client Secret</b>. Access token приложение получит
+            само (client credentials grant) и обновит по истечении; этим же секретом
             проверяется подпись вебхуков.
           </p>
           <div className="field">
@@ -272,26 +274,37 @@ export default function SettingsPage() {
             <button className="btn primary" disabled={cfgBusy} onClick={saveShopifyConfig}>
               {cfgBusy ? "Сохраняю…" : "Сохранить настройки"}
             </button>
-            {shopCfg?.domain && shopCfg.clientIdSet && shopCfg.clientSecretSet && (
-              <>
-                {!whStatus?.connected && (
-                  <button className="btn green" disabled={whBusy} onClick={connectWebhook}>
-                    {whBusy ? "…" : "Подключить вебхук"}
-                  </button>
-                )}
-                <button className="btn ghost" disabled={whBusy} onClick={refreshWebhook}>
-                  {whBusy ? "Проверяю…" : "Проверить подключение"}
-                </button>
-              </>
-            )}
+            <button
+              className="btn green"
+              disabled={!cfgComplete || whBusy || whStatus?.connected}
+              onClick={connectWebhook}
+            >
+              {whBusy ? "…" : whStatus?.connected ? "Вебхук подключён ✓" : "Подключить вебхук"}
+            </button>
+            <button className="btn ghost" disabled={!cfgComplete || whBusy} onClick={refreshWebhook}>
+              {whBusy ? "Проверяю…" : "Проверить подключение"}
+            </button>
           </div>
+          <p style={{ fontSize: 13, marginTop: 10 }}>
+            Вебхук:{" "}
+            {!cfgComplete ? (
+              <span style={{ color: "var(--mute)" }}>
+                — сначала сохраните домен, Client ID и Client Secret
+              </span>
+            ) : whStatus?.connected ? (
+              <b style={{ color: "var(--green)" }}>подключён ✓</b>
+            ) : whStatus?.error ? (
+              <span style={{ color: "var(--red)" }}>ошибка: {whStatus.error}</span>
+            ) : whStatus ? (
+              <span style={{ color: "var(--gold)" }}>не подключён</span>
+            ) : (
+              <span style={{ color: "var(--mute)" }}>нажмите «Проверить подключение»</span>
+            )}
+          </p>
           {shopMsg && (
-            <p style={{ fontSize: 13, marginTop: 8, color: shopMsg.startsWith("⚠") ? "var(--red)" : "var(--green)" }}>
+            <p style={{ fontSize: 13, marginTop: 6, color: shopMsg.startsWith("⚠") ? "var(--red)" : "var(--green)" }}>
               {shopMsg}
             </p>
-          )}
-          {whStatus?.error && (
-            <p style={{ fontSize: 12.5, marginTop: 6, color: "var(--red)" }}>⚠ {whStatus.error}</p>
           )}
         </div>
 
