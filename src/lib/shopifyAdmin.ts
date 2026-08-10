@@ -99,7 +99,11 @@ export async function getAccessToken(cfg: ShopifyConfig, force = false): Promise
     throw new Error(`Не удалось связаться с ${cfg.domain}: ${(e as Error).message}`);
   }
   if (!res.ok) {
-    const text = (await res.text()).slice(0, 300);
+    let text = (await res.text()).slice(0, 300);
+    if (/^\s*</.test(text)) {
+      // HTML-страница вместо JSON: магазин не найден или грант недоступен
+      text = res.status === 404 ? "магазин не найден — проверьте домен" : "Shopify вернул HTML вместо JSON";
+    }
     throw new Error(`Token exchange отклонён (${res.status}): ${text}`);
   }
   const data = (await res.json()) as { access_token?: string; expires_in?: number };
