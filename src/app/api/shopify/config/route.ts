@@ -3,15 +3,15 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { appConfig } from "@/db/schema";
-import { CONFIG_KEYS, getShopifyConfig } from "@/lib/shopifyAdmin";
+import { CONFIG_KEYS, getShopifyConfig, invalidateAccessToken } from "@/lib/shopifyAdmin";
 
 export async function GET() {
   const cfg = await getShopifyConfig();
-  // токен и секрет наружу не отдаём — только факт наличия
+  // секрет наружу не отдаём — только факт наличия
   return NextResponse.json({
     domain: cfg.domain,
-    tokenSet: !!cfg.token,
-    secretSet: !!cfg.secret,
+    clientIdSet: !!cfg.clientId,
+    clientSecretSet: !!cfg.clientSecret,
   });
 }
 
@@ -25,8 +25,12 @@ export async function POST(req: NextRequest) {
     }
     updates.push([CONFIG_KEYS.domain, domain]);
   }
-  if (typeof body.token === "string" && body.token.trim()) updates.push([CONFIG_KEYS.token, body.token.trim()]);
-  if (typeof body.secret === "string" && body.secret.trim()) updates.push([CONFIG_KEYS.secret, body.secret.trim()]);
+  if (typeof body.clientId === "string" && body.clientId.trim()) {
+    updates.push([CONFIG_KEYS.clientId, body.clientId.trim()]);
+  }
+  if (typeof body.clientSecret === "string" && body.clientSecret.trim()) {
+    updates.push([CONFIG_KEYS.clientSecret, body.clientSecret.trim()]);
+  }
   if (!updates.length) return NextResponse.json({ error: "Нечего сохранять" }, { status: 400 });
 
   for (const [key, value] of updates) {
@@ -35,6 +39,12 @@ export async function POST(req: NextRequest) {
       .values({ key, value })
       .onConflictDoUpdate({ target: appConfig.key, set: { value, updatedAt: new Date() } });
   }
+  // смена реквизитов делает закэшированный access token недействительным
+  await invalidateAccessToken();
   const cfg = await getShopifyConfig();
-  return NextResponse.json({ domain: cfg.domain, tokenSet: !!cfg.token, secretSet: !!cfg.secret });
+  return NextResponse.json({
+    domain: cfg.domain,
+    clientIdSet: !!cfg.clientId,
+    clientSecretSet: !!cfg.clientSecret,
+  });
 }

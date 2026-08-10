@@ -42,7 +42,10 @@ async function markSold(item: Item, li: LineItem, orderName: string, orderDate: 
 export async function POST(req: NextRequest) {
   const raw = await req.text();
   const cfg = await getShopifyConfig();
-  if (!cfg.secret || !verifyShopifyHmac(raw, req.headers.get("x-shopify-hmac-sha256"), cfg.secret)) {
+  if (
+    !cfg.clientSecret ||
+    !verifyShopifyHmac(raw, req.headers.get("x-shopify-hmac-sha256"), cfg.clientSecret)
+  ) {
     return NextResponse.json({ error: "invalid hmac" }, { status: 401 });
   }
   const topic = req.headers.get("x-shopify-topic");

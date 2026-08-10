@@ -63,9 +63,9 @@ export default function SettingsPage() {
   const [backup, setBackup] = useState<BackupStatus | null>(null);
   const [archivedCount, setArchivedCount] = useState(0);
   const [unmatchedCount, setUnmatchedCount] = useState(0);
-  const [shopCfg, setShopCfg] = useState<{ domain: string | null; tokenSet: boolean; secretSet: boolean } | null>(null);
+  const [shopCfg, setShopCfg] = useState<{ domain: string | null; clientIdSet: boolean; clientSecretSet: boolean } | null>(null);
   const [whStatus, setWhStatus] = useState<{ configured: boolean; connected: boolean; error?: string } | null>(null);
-  const [cfgForm, setCfgForm] = useState({ domain: "", token: "", secret: "" });
+  const [cfgForm, setCfgForm] = useState({ domain: "", clientId: "", clientSecret: "" });
   const [cfgBusy, setCfgBusy] = useState(false);
   const [whBusy, setWhBusy] = useState(false);
   const [shopMsg, setShopMsg] = useState("");
@@ -83,11 +83,11 @@ export default function SettingsPage() {
     api<{ length: number }[]>("/api/shopify-sales")
       .then((s) => setUnmatchedCount(s.length))
       .catch(() => {});
-    api<{ domain: string | null; tokenSet: boolean; secretSet: boolean }>("/api/shopify/config")
+    api<{ domain: string | null; clientIdSet: boolean; clientSecretSet: boolean }>("/api/shopify/config")
       .then((c) => {
         setShopCfg(c);
         if (c.domain) setCfgForm((f) => ({ ...f, domain: c.domain! }));
-        if (c.domain && c.tokenSet && c.secretSet) refreshWebhook();
+        if (c.domain && c.clientIdSet && c.clientSecretSet) refreshWebhook();
       })
       .catch(() => {});
     setName(readUserCookie());
@@ -106,14 +106,14 @@ export default function SettingsPage() {
     setCfgBusy(true);
     setShopMsg("");
     try {
-      const c = await api<{ domain: string | null; tokenSet: boolean; secretSet: boolean }>(
+      const c = await api<{ domain: string | null; clientIdSet: boolean; clientSecretSet: boolean }>(
         "/api/shopify/config",
         { method: "POST", body: JSON.stringify(cfgForm) },
       );
       setShopCfg(c);
-      setCfgForm((f) => ({ ...f, token: "", secret: "" }));
+      setCfgForm((f) => ({ ...f, clientId: "", clientSecret: "" }));
       setShopMsg("Сохранено ✓");
-      if (c.domain && c.tokenSet && c.secretSet) refreshWebhook();
+      if (c.domain && c.clientIdSet && c.clientSecretSet) refreshWebhook();
     } catch (e) {
       setShopMsg(`⚠ ${(e as Error).message}`);
     } finally {
@@ -236,10 +236,12 @@ export default function SettingsPage() {
           )}
           <p style={{ fontSize: 13, color: "var(--mute)", marginBottom: 10 }}>
             Оплаченные заказы будут сами отмечать связанные товары проданными.
-            Нужно custom-приложение магазина: Shopify Admin → Settings → Apps and
-            sales channels → Develop apps → Create app, права <b>read_orders, read_products,
-            read_webhooks + write_webhooks</b>. Оттуда возьмите Admin API access token
-            (shpat_…) и API secret key.
+            Нужно custom-приложение: Shopify Admin → Settings → Apps and sales
+            channels → Develop apps → Create app, права <b>read_orders, read_products,
+            read_webhooks + write_webhooks</b>. Возьмите оттуда <b>Client ID</b> и{" "}
+            <b>Client Secret</b> — access token приложение получит само (client
+            credentials grant) и будет обновлять по истечении. Этим же секретом
+            проверяется подпись вебхуков.
           </p>
           <div className="field">
             <label>Домен магазина</label>
@@ -250,28 +252,27 @@ export default function SettingsPage() {
             />
           </div>
           <div className="field">
-            <label>Admin API token {shopCfg?.tokenSet ? "(сохранён ✓ — ввод заменит)" : ""}</label>
+            <label>Client ID {shopCfg?.clientIdSet ? "(сохранён ✓ — ввод заменит)" : ""}</label>
             <input
               type="password"
-              placeholder="shpat_…"
-              value={cfgForm.token}
-              onChange={(e) => setCfgForm({ ...cfgForm, token: e.target.value })}
+              value={cfgForm.clientId}
+              onChange={(e) => setCfgForm({ ...cfgForm, clientId: e.target.value })}
             />
           </div>
           <div className="field">
-            <label>API secret key {shopCfg?.secretSet ? "(сохранён ✓ — ввод заменит)" : ""}</label>
+            <label>Client Secret {shopCfg?.clientSecretSet ? "(сохранён ✓ — ввод заменит)" : ""}</label>
             <input
               type="password"
-              placeholder="для проверки подписи вебхука"
-              value={cfgForm.secret}
-              onChange={(e) => setCfgForm({ ...cfgForm, secret: e.target.value })}
+              placeholder="также подписывает вебхуки"
+              value={cfgForm.clientSecret}
+              onChange={(e) => setCfgForm({ ...cfgForm, clientSecret: e.target.value })}
             />
           </div>
           <div className="stack" style={{ marginTop: 4 }}>
             <button className="btn primary" disabled={cfgBusy} onClick={saveShopifyConfig}>
               {cfgBusy ? "Сохраняю…" : "Сохранить настройки"}
             </button>
-            {shopCfg?.domain && shopCfg.tokenSet && shopCfg.secretSet && (
+            {shopCfg?.domain && shopCfg.clientIdSet && shopCfg.clientSecretSet && (
               <>
                 {!whStatus?.connected && (
                   <button className="btn green" disabled={whBusy} onClick={connectWebhook}>

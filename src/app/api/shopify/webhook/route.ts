@@ -12,7 +12,7 @@ function webhookAddress(req: NextRequest): string {
 
 export async function GET(req: NextRequest) {
   const cfg = await getShopifyConfig();
-  const configured = !!(cfg.domain && cfg.token && cfg.secret);
+  const configured = !!(cfg.domain && cfg.clientId && cfg.clientSecret);
   if (!configured) {
     return NextResponse.json({ configured, connected: false });
   }
@@ -36,8 +36,11 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   const cfg = await getShopifyConfig();
-  if (!cfg.domain || !cfg.token || !cfg.secret) {
-    return NextResponse.json({ error: "Сначала заполните домен, токен и API secret" }, { status: 400 });
+  if (!cfg.domain || !cfg.clientId || !cfg.clientSecret) {
+    return NextResponse.json(
+      { error: "Сначала заполните домен, Client ID и Client Secret" },
+      { status: 400 },
+    );
   }
   const address = webhookAddress(req);
   try {
