@@ -12,7 +12,9 @@ export async function middleware(req: NextRequest) {
     // крон-роуты проверяют CRON_SECRET сами
     pathname.startsWith("/api/cron/") ||
     // вебхуки Shopify проверяют HMAC-подпись сами
-    pathname.startsWith("/api/webhooks/")
+    pathname.startsWith("/api/webhooks/") ||
+    // OAuth-callback: приходит от Shopify без нашей куки, защищён state + HMAC
+    pathname === "/api/shopify/callback"
   ) {
     return NextResponse.next();
   }

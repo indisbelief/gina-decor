@@ -42,6 +42,13 @@ function readUserCookie(): string {
   }
 }
 
+type ShopConfigDto = {
+  domain: string | null;
+  clientIdSet: boolean;
+  clientSecretSet: boolean;
+  authorized: { shop: string; obtainedAt: string; scope: string | null } | null;
+};
+
 type BackupStatus = {
   count: number;
   latest: { pathname: string; uploadedAt: string; size: number } | null;
@@ -63,7 +70,7 @@ export default function SettingsPage() {
   const [backup, setBackup] = useState<BackupStatus | null>(null);
   const [archivedCount, setArchivedCount] = useState(0);
   const [unmatchedCount, setUnmatchedCount] = useState(0);
-  const [shopCfg, setShopCfg] = useState<{ domain: string | null; clientIdSet: boolean; clientSecretSet: boolean } | null>(null);
+  const [shopCfg, setShopCfg] = useState<ShopConfigDto | null>(null);
   const [whStatus, setWhStatus] = useState<{ configured: boolean; connected: boolean; error?: string } | null>(null);
   const [cfgForm, setCfgForm] = useState({ domain: "", clientId: "", clientSecret: "" });
   const [cfgBusy, setCfgBusy] = useState(false);
@@ -83,13 +90,21 @@ export default function SettingsPage() {
     api<{ length: number }[]>("/api/shopify-sales")
       .then((s) => setUnmatchedCount(s.length))
       .catch(() => {});
-    api<{ domain: string | null; clientIdSet: boolean; clientSecretSet: boolean }>("/api/shopify/config")
+    api<ShopConfigDto>("/api/shopify/config")
       .then((c) => {
         setShopCfg(c);
         if (c.domain) setCfgForm((f) => ({ ...f, domain: c.domain! }));
-        if (c.domain && c.clientIdSet && c.clientSecretSet) refreshWebhook();
+        if (c.authorized) refreshWebhook();
       })
       .catch(() => {});
+    // возврат из OAuth-авторизации Shopify
+    const q = new URLSearchParams(window.location.search);
+    if (q.get("shopify") === "ok") setShopMsg("Shopify авторизован ✓");
+    const oauthErr = q.get("shopify_error");
+    if (oauthErr) setShopMsg(`⚠ ${oauthErr}`);
+    if (q.has("shopify") || q.has("shopify_error")) {
+      window.history.replaceState(null, "", "/settings");
+    }
     setName(readUserCookie());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -108,14 +123,14 @@ export default function SettingsPage() {
     setCfgBusy(true);
     setShopMsg("");
     try {
-      const c = await api<{ domain: string | null; clientIdSet: boolean; clientSecretSet: boolean }>(
-        "/api/shopify/config",
-        { method: "POST", body: JSON.stringify(cfgForm) },
-      );
+      const c = await api<ShopConfigDto>("/api/shopify/config", {
+        method: "POST",
+        body: JSON.stringify(cfgForm),
+      });
       setShopCfg(c);
       setCfgForm((f) => ({ ...f, clientId: "", clientSecret: "" }));
       setShopMsg("Сохранено ✓");
-      if (c.domain && c.clientIdSet && c.clientSecretSet) refreshWebhook();
+      if (c.authorized) refreshWebhook();
     } catch (e) {
       setShopMsg(`⚠ ${(e as Error).message}`);
     } finally {
@@ -239,11 +254,12 @@ export default function SettingsPage() {
           <p style={{ fontSize: 13, color: "var(--mute)", marginBottom: 10 }}>
             Оплаченные заказы будут сами отмечать связанные товары проданными.
             Приложение создаётся в <b>Dev Dashboard</b> (dev.shopify.com) → Create app →
-            скоупы <b>read_orders</b> (+ read_all_orders, если доступен) и{" "}
-            <b>read_products</b> → Create version. Ключи — в Settings приложения:{" "}
-            <b>Client ID</b> и <b>Client Secret</b>. Access token приложение получит
-            само (client credentials grant) и обновит по истечении; этим же секретом
-            проверяется подпись вебхуков.
+            скоупы <b>read_orders</b> и <b>read_products</b> → в конфигурации приложения
+            укажите Allowed redirection URL:{" "}
+            <b>https://gina-decor.vercel.app/api/shopify/callback</b> → Create version.
+            Ключи — в Settings приложения: <b>Client ID</b> и <b>Client Secret</b>.
+            После сохранения нажмите «Авторизовать в Shopify» — приложение получит
+            бессрочный offline-токен; client secret также проверяет подпись вебхуков.
           </p>
           <div className="field">
             <label>Домен магазина</label>
@@ -274,23 +290,47 @@ export default function SettingsPage() {
             <button className="btn primary" disabled={cfgBusy} onClick={saveShopifyConfig}>
               {cfgBusy ? "Сохраняю…" : "Сохранить настройки"}
             </button>
+            <a
+              className="btn green"
+              href="/api/shopify/authorize"
+              style={!cfgComplete || shopCfg?.authorized ? { opacity: 0.5, pointerEvents: "none" } : undefined}
+            >
+              {shopCfg?.authorized ? "Авторизовано ✓" : "Авторизовать в Shopify"}
+            </a>
             <button
               className="btn green"
-              disabled={!cfgComplete || whBusy || whStatus?.connected}
+              disabled={!shopCfg?.authorized || whBusy || whStatus?.connected}
               onClick={connectWebhook}
             >
               {whBusy ? "…" : whStatus?.connected ? "Вебхук подключён ✓" : "Подключить вебхук"}
             </button>
-            <button className="btn ghost" disabled={!cfgComplete || whBusy} onClick={refreshWebhook}>
+            <button
+              className="btn ghost"
+              disabled={!shopCfg?.authorized || whBusy}
+              onClick={refreshWebhook}
+            >
               {whBusy ? "Проверяю…" : "Проверить подключение"}
             </button>
           </div>
           <p style={{ fontSize: 13, marginTop: 10 }}>
+            Shopify:{" "}
+            {shopCfg?.authorized ? (
+              <b style={{ color: "var(--green)" }}>
+                авторизован ✓ ({shopCfg.authorized.shop}
+                {shopCfg.authorized.obtainedAt
+                  ? `, ${new Date(shopCfg.authorized.obtainedAt).toLocaleDateString("ru-RU")}`
+                  : ""}
+                )
+              </b>
+            ) : cfgComplete ? (
+              <span style={{ color: "var(--gold)" }}>не авторизован — нажмите «Авторизовать в Shopify»</span>
+            ) : (
+              <span style={{ color: "var(--mute)" }}>— сначала сохраните домен, Client ID и Client Secret</span>
+            )}
+            <br />
             Вебхук:{" "}
-            {!cfgComplete ? (
-              <span style={{ color: "var(--mute)" }}>
-                — сначала сохраните домен, Client ID и Client Secret
-              </span>
+            {!shopCfg?.authorized ? (
+              <span style={{ color: "var(--mute)" }}>— доступен после авторизации</span>
             ) : whStatus?.connected ? (
               <b style={{ color: "var(--green)" }}>подключён ✓</b>
             ) : whStatus?.error ? (

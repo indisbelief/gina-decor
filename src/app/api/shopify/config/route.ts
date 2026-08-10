@@ -3,20 +3,32 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { appConfig } from "@/db/schema";
-import { CONFIG_KEYS, getShopifyConfig, invalidateAccessToken } from "@/lib/shopifyAdmin";
+import {
+  CONFIG_KEYS,
+  clearOfflineToken,
+  getOfflineToken,
+  getShopifyConfig,
+} from "@/lib/shopifyAdmin";
 
-export async function GET() {
+async function status() {
   const cfg = await getShopifyConfig();
-  // секрет наружу не отдаём — только факт наличия
-  return NextResponse.json({
+  const auth = await getOfflineToken();
+  // токен наружу не отдаём — только магазин и дату авторизации
+  return {
     domain: cfg.domain,
     clientIdSet: !!cfg.clientId,
     clientSecretSet: !!cfg.clientSecret,
-  });
+    authorized: auth ? { shop: auth.shop, obtainedAt: auth.obtainedAt, scope: auth.scope } : null,
+  };
+}
+
+export async function GET() {
+  return NextResponse.json(await status());
 }
 
 export async function POST(req: NextRequest) {
   const body = await req.json();
+  const before = await getShopifyConfig();
   const updates: [string, string][] = [];
   if (typeof body.domain === "string" && body.domain.trim()) {
     const domain = body.domain.trim().replace(/^https?:\/\//, "").replace(/\/.*$/, "");
@@ -39,12 +51,9 @@ export async function POST(req: NextRequest) {
       .values({ key, value })
       .onConflictDoUpdate({ target: appConfig.key, set: { value, updatedAt: new Date() } });
   }
-  // смена реквизитов делает закэшированный access token недействительным
-  await invalidateAccessToken();
-  const cfg = await getShopifyConfig();
-  return NextResponse.json({
-    domain: cfg.domain,
-    clientIdSet: !!cfg.clientId,
-    clientSecretSet: !!cfg.clientSecret,
-  });
+  // смена магазина делает сохранённый offline-токен чужим — сбрасываем
+  const after = await getShopifyConfig();
+  if (before.domain && after.domain !== before.domain) await clearOfflineToken();
+
+  return NextResponse.json(await status());
 }

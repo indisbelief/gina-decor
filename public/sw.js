@@ -1,4 +1,4 @@
-const CACHE = "gina-decor-v4";
+const CACHE = "gina-decor-v5";
 
 self.addEventListener("install", (e) => {
   self.skipWaiting();

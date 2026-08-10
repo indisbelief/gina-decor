@@ -15,8 +15,10 @@ export const CONFIG_KEYS = {
   clientSecret: "shopify_client_secret",
 } as const;
 
-const TOKEN_KEY = "shopify_access_token";
+export const TOKEN_KEY = "shopify_offline_token";
 const API_VERSION = "2025-01";
+
+export const OAUTH_SCOPES = "read_orders,read_products";
 
 /** Конфиг интеграции: env имеет приоритет над app_config. */
 export async function getShopifyConfig(): Promise<ShopifyConfig> {
@@ -32,7 +34,7 @@ export async function getShopifyConfig(): Promise<ShopifyConfig> {
   };
 }
 
-/** Подпись вебхуков в новой схеме custom apps идёт client secret'ом. */
+/** Подпись тела вебхуков — client secret приложения. */
 export function verifyShopifyHmac(raw: string, headerB64: string | null, secret: string): boolean {
   if (!headerB64) return false;
   const digest = createHmac("sha256", secret).update(raw, "utf8").digest();
@@ -45,79 +47,60 @@ export function verifyShopifyHmac(raw: string, headerB64: string | null, secret:
   return header.length === digest.length && timingSafeEqual(digest, header);
 }
 
-type CachedToken = { token: string; expiresAt: number };
-let memToken: CachedToken | null = null;
+/** Подпись query-параметров OAuth-callback (hex, отсортированные пары без hmac/signature). */
+export function verifyOAuthQueryHmac(params: URLSearchParams, secret: string): boolean {
+  const hmac = params.get("hmac");
+  if (!hmac) return false;
+  const message = [...params.entries()]
+    .filter(([k]) => k !== "hmac" && k !== "signature")
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([k, v]) => `${k}=${v}`)
+    .join("&");
+  const digest = Buffer.from(createHmac("sha256", secret).update(message).digest("hex"));
+  const header = Buffer.from(hmac);
+  return digest.length === header.length && timingSafeEqual(digest, header);
+}
 
-export async function invalidateAccessToken() {
-  memToken = null;
+export type OfflineToken = {
+  token: string;
+  shop: string;
+  scope: string | null;
+  obtainedAt: string;
+};
+
+/** Бессрочный offline-токен из authorization code grant. */
+export async function getOfflineToken(): Promise<OfflineToken | null> {
+  if (process.env.SHOPIFY_OFFLINE_TOKEN) {
+    const cfg = await getShopifyConfig();
+    return {
+      token: process.env.SHOPIFY_OFFLINE_TOKEN,
+      shop: cfg.domain ?? "",
+      scope: null,
+      obtainedAt: "",
+    };
+  }
+  const [row] = await db.select().from(appConfig).where(eq(appConfig.key, TOKEN_KEY));
+  if (!row) return null;
   try {
-    await db.delete(appConfig).where(eq(appConfig.key, TOKEN_KEY));
+    const parsed = JSON.parse(row.value) as OfflineToken;
+    return parsed.token ? parsed : null;
   } catch {
-    // нет кэша — нечего сбрасывать
+    return null;
   }
 }
 
-/**
- * Access token по client credentials grant. Токен короткоживущий:
- * кэшируем в памяти и в app_config (общий для всех инстансов),
- * обновляем за минуту до истечения.
- */
-export async function getAccessToken(cfg: ShopifyConfig, force = false): Promise<string> {
-  if (!cfg.domain || !cfg.clientId || !cfg.clientSecret) {
-    throw new Error("Shopify не настроен: нужны домен, Client ID и Client Secret");
-  }
-  const now = Date.now();
-  if (!force) {
-    if (memToken && memToken.expiresAt - 60_000 > now) return memToken.token;
-    const [row] = await db.select().from(appConfig).where(eq(appConfig.key, TOKEN_KEY));
-    if (row) {
-      try {
-        const cached = JSON.parse(row.value) as CachedToken;
-        if (cached.token && cached.expiresAt - 60_000 > now) {
-          memToken = cached;
-          return cached.token;
-        }
-      } catch {
-        // битый кэш — просто обменяем заново
-      }
-    }
-  }
-
-  let res: Response;
-  try {
-    res = await fetch(`https://${cfg.domain}/admin/oauth/access_token`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        client_id: cfg.clientId,
-        client_secret: cfg.clientSecret,
-        grant_type: "client_credentials",
-      }),
-      signal: AbortSignal.timeout(8000),
-    });
-  } catch (e) {
-    throw new Error(`Не удалось связаться с ${cfg.domain}: ${(e as Error).message}`);
-  }
-  if (!res.ok) {
-    let text = (await res.text()).slice(0, 300);
-    if (/^\s*</.test(text)) {
-      // HTML-страница вместо JSON: магазин не найден или грант недоступен
-      text = res.status === 404 ? "магазин не найден — проверьте домен" : "Shopify вернул HTML вместо JSON";
-    }
-    throw new Error(`Token exchange отклонён (${res.status}): ${text}`);
-  }
-  const data = (await res.json()) as { access_token?: string; expires_in?: number };
-  if (!data.access_token) throw new Error("Token exchange: в ответе нет access_token");
-
-  memToken = { token: data.access_token, expiresAt: now + (data.expires_in ?? 86400) * 1000 };
+export async function saveOfflineToken(t: OfflineToken) {
   await db
     .insert(appConfig)
-    .values({ key: TOKEN_KEY, value: JSON.stringify(memToken) })
+    .values({ key: TOKEN_KEY, value: JSON.stringify(t) })
     .onConflictDoUpdate({
       target: appConfig.key,
-      set: { value: JSON.stringify(memToken), updatedAt: new Date() },
+      set: { value: JSON.stringify(t), updatedAt: new Date() },
     });
-  return memToken.token;
+}
+
+export async function clearOfflineToken() {
+  await db.delete(appConfig).where(eq(appConfig.key, TOKEN_KEY));
 }
 
 export async function adminFetch(
@@ -126,21 +109,21 @@ export async function adminFetch(
   init?: RequestInit,
 ): Promise<Response> {
   if (!cfg.domain) throw new Error("Shopify не настроен: нужен домен");
-  const doFetch = (token: string) =>
-    fetch(`https://${cfg.domain}/admin/api/${API_VERSION}${path}`, {
-      ...init,
-      headers: {
-        "X-Shopify-Access-Token": token,
-        "Content-Type": "application/json",
-        ...init?.headers,
-      },
-      signal: AbortSignal.timeout(8000),
-    });
-
-  let res = await doFetch(await getAccessToken(cfg));
+  const auth = await getOfflineToken();
+  if (!auth) {
+    throw new Error("Shopify не авторизован — нажмите «Авторизовать в Shopify» в настройках");
+  }
+  const res = await fetch(`https://${cfg.domain}/admin/api/${API_VERSION}${path}`, {
+    ...init,
+    headers: {
+      "X-Shopify-Access-Token": auth.token,
+      "Content-Type": "application/json",
+      ...init?.headers,
+    },
+    signal: AbortSignal.timeout(8000),
+  });
   if (res.status === 401) {
-    // токен мог быть отозван раньше expires_in — обменяем заново один раз
-    res = await doFetch(await getAccessToken(cfg, true));
+    throw new Error("Shopify отверг токен — нужна повторная авторизация («Авторизовать в Shopify»)");
   }
   return res;
 }
